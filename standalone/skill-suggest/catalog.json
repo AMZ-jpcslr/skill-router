@@ -1,0 +1,139 @@
+{
+  "version": 1,
+  "tasks": {
+    "career-writing": "応募書類・文体合わせ",
+    "docs": "README・手順書の更新",
+    "debugging": "不具合の再現と原因調査",
+    "regression-test": "Pythonの回帰テスト",
+    "spreadsheet": "Excelの数式・集計・検算",
+    "word": "Word文書と変更履歴",
+    "pdf": "PDF資料の抽出・作成",
+    "slides": "スライド作成・編集",
+    "office-writing": "社内報告・お知らせ",
+    "meeting-notes": "議事録とアクション項目",
+    "frontend": "UIデザインと画面の実装",
+    "browser-testing": "画面操作のブラウザー検証"
+  },
+  "skills": [
+    {
+      "id": "draft-career-es",
+      "aliases": [],
+      "fit": {
+        "career-writing": 5
+      },
+      "reason": "事実と見本の文体を分けて、本人の語調と根拠を保つ"
+    },
+    {
+      "id": "documentation",
+      "aliases": [],
+      "fit": {
+        "docs": 5
+      },
+      "reason": "文書の変更範囲と読み手が使える手順を整理する"
+    },
+    {
+      "id": "systematic-debugging",
+      "aliases": [],
+      "fit": {
+        "debugging": 5
+      },
+      "reason": "再現と検証を分け、修正前に原因を絞る"
+    },
+    {
+      "id": "bug-hunter",
+      "aliases": [],
+      "fit": {
+        "debugging": 4
+      },
+      "reason": "症状から根拠を集め、再現と原因を追う"
+    },
+    {
+      "id": "python-testing-patterns",
+      "aliases": [],
+      "fit": {
+        "regression-test": 5
+      },
+      "reason": "仕様の境界をテストで固定する",
+      "source": "https://github.com/sickn33/agentic-awesome-skills/tree/main/skills/python-testing-patterns"
+    },
+    {
+      "id": "xlsx",
+      "aliases": [
+        "xlsx-official"
+      ],
+      "fit": {
+        "spreadsheet": 5
+      },
+      "reason": "数式・表示形式・既存シートを保って成果物を検算する",
+      "source": "https://github.com/anthropics/skills/tree/main/skills/xlsx"
+    },
+    {
+      "id": "docx",
+      "aliases": [
+        "docx-official"
+      ],
+      "fit": {
+        "word": 5
+      },
+      "reason": "Wordの書式や変更履歴を確認しながら編集する",
+      "source": "https://github.com/anthropics/skills/tree/main/skills/docx"
+    },
+    {
+      "id": "pdf",
+      "aliases": [
+        "pdf-official"
+      ],
+      "fit": {
+        "pdf": 5
+      },
+      "reason": "PDFから抽出・編集・作成する作業を整理する",
+      "source": "https://github.com/anthropics/skills/tree/main/skills/pdf"
+    },
+    {
+      "id": "pptx",
+      "aliases": [
+        "pptx-official"
+      ],
+      "fit": {
+        "slides": 5
+      },
+      "reason": "スライドの構成・レイアウト・既存素材を扱う",
+      "source": "https://github.com/anthropics/skills/tree/main/skills/pptx"
+    },
+    {
+      "id": "internal-comms",
+      "aliases": [],
+      "fit": {
+        "office-writing": 5
+      },
+      "reason": "相手と用途に合わせて報告要点を整理する",
+      "source": "https://github.com/anthropics/skills/tree/main/skills/internal-comms"
+    },
+    {
+      "id": "bulletmind",
+      "aliases": [],
+      "fit": {
+        "meeting-notes": 5
+      },
+      "reason": "決定・担当・期限が辿れる形に会議の記録を整理する"
+    },
+    {
+      "id": "frontend-design",
+      "aliases": [],
+      "fit": {
+        "frontend": 5
+      },
+      "reason": "目的に沿った画面の見た目と実装を詰める",
+      "source": "https://github.com/anthropics/skills/tree/main/skills/frontend-design"
+    },
+    {
+      "id": "webapp-testing",
+      "aliases": [],
+      "fit": {
+        "browser-testing": 5
+      },
+      "reason": "ローカルの画面操作をPlaywrightで検証する",
+      "source": "https://github.com/anthropics/skills/tree/main/skills/webapp-testing"
+    }
+  ]
+}

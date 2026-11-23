@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640" role="img" aria-labelledby="title desc">
+  <title id="title">Skill Router</title>
+  <desc id="desc">Codex Desktop向けベータ。普段の依頼から、作業に合うスキルの手がかりを届ける。</desc>
+  <defs>
+    <linearGradient id="bg" x2="1" y2="1"><stop stop-color="#0d252c"/><stop offset="1" stop-color="#0a1120"/></linearGradient>
+    <linearGradient id="card" x2="1" y2="1"><stop stop-color="#193a43"/><stop offset="1" stop-color="#101f32"/></linearGradient>
+    <pattern id="dots" width="24" height="24" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r="1" fill="#8de6d7" opacity=".21"/></pattern>
+  </defs>
+  <rect width="1280" height="640" fill="#08141e"/>
+  <rect x="26" y="26" width="1228" height="588" rx="35" fill="url(#bg)" stroke="#2a545a" stroke-width="2"/>
+  <path d="M705 66h506v508H705z" fill="url(#dots)"/>
+  <path d="M684 101v438" stroke="#224147"/>
+  <g font-family="'Segoe UI', 'Yu Gothic', Meiryo, sans-serif">
+    <rect x="82" y="89" width="51" height="51" rx="14" fill="#194b4a" stroke="#499a8c"/>
+    <path d="M93 115h13c8 0 7-10 16-10m-16 10c8 0 7 10 16 10" fill="none" stroke="#78f0d2" stroke-width="3" stroke-linecap="round"/>
+    <circle cx="93" cy="115" r="3.5" fill="#e8fcf8"/><circle cx="122" cy="105" r="3.5" fill="#fbe0a5"/><circle cx="122" cy="125" r="3.5" fill="#a0b8c9"/>
+    <text x="150" y="121" fill="#a4d4ce" font-size="18" font-weight="600" letter-spacing="3">WINDOWS / CODEX DESKTOP</text>
+    <text x="77" y="277" fill="#f0f8f7" font-size="86" font-weight="750" letter-spacing="-4">Skill Router</text>
+    <text x="83" y="353" fill="#91f3d5" font-size="30" font-weight="700">スキル名より、やりたいことを。</text>
+    <text x="84" y="405" fill="#b2c9ce" font-size="22">普段の依頼から、作業に合う候補をCodexへ。</text>
+    <rect x="83" y="482" width="132" height="39" rx="19.5" fill="#2d342d" stroke="#8d8053"/>
+    <text x="149" y="507" text-anchor="middle" fill="#fbe0a5" font-size="17" font-weight="700" letter-spacing="2">GITHUB β</text>
+    <text x="240" y="507" fill="#95b2bd" font-size="17">自動選択は初期状態でオフ</text>
+    <rect x="740" y="112" width="425" height="101" rx="22" fill="url(#card)" stroke="#427672" stroke-width="2"/>
+    <text x="771" y="150" fill="#91b4bb" font-size="17" letter-spacing="1">いつもの依頼</text>
+    <text x="771" y="185" fill="#ecfaf7" font-size="23" font-weight="600">「READMEの日本語を整えて」</text>
+    <path d="M950 213v60m0 0v38c0 22-16 38-38 38h-65v50m103-126v38c0 22 16 38 38 38h67v50" fill="none" stroke="#65e8cd" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="950" cy="272" r="12" fill="#14313c" stroke="#6cebd0" stroke-width="4"/>
+    <circle cx="847" cy="392" r="6" fill="#65e8cd"/><circle cx="1055" cy="392" r="6" fill="#fbe0a5"/>
+    <rect x="744" y="408" width="199" height="92" rx="18" fill="#102b32" stroke="#4e9a89"/>
+    <rect x="958" y="408" width="207" height="92" rx="18" fill="#142637" stroke="#37616e"/>
+    <text x="843" y="451" fill="#eef9f7" font-size="21" font-weight="700" text-anchor="middle">READMEガイド</text>
+    <text x="843" y="478" fill="#a8c4c6" font-size="15" text-anchor="middle">作業の進め方</text>
+    <text x="1062" y="451" fill="#eef9f7" font-size="21" font-weight="700" text-anchor="middle">文体スキル候補</text>
+    <text x="1062" y="478" fill="#a8c4c6" font-size="15" text-anchor="middle">導入済みの場合</text>
+    <text x="951" y="551" fill="#90b4be" text-anchor="middle" font-size="16">図はルーターの仕組みのイメージです</text>
+  </g>
+</svg>

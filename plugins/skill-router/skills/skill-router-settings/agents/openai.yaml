@@ -1,0 +1,5 @@
+interface:
+  display_name: "Skill Router 設定"
+  short_description: "自動選択の対象とオン・オフを管理"
+policy:
+  allow_implicit_invocation: false

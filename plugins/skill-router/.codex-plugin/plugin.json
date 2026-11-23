@@ -1,0 +1,13 @@
+{
+  "name": "skill-router",
+  "version": "0.1.0-beta.6",
+  "description": "Local skill routing with opt-in scopes and on-demand recommendations.",
+  "interface": {
+    "displayName": "Skill Router",
+    "shortDescription": "依頼に合う作業ガイドを自動選択",
+    "longDescription": "自動選択は初期状態でオフ。ローカル Codex で対象を選び、チャットから設定とスキルの提案を使えます。",
+    "category": "Productivity",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg"
+  }
+}
