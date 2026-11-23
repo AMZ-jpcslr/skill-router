@@ -261,6 +261,11 @@ def rank(prompt,records,guide_names,explanations=None):
     seen=set()
     return [(k,r) for k,r in results if r["path"] not in seen and not seen.add(r["path"])]
 
+def summary(text, limit=180):
+    """Single-line excerpt of a skill description, shown to the agent as data."""
+    clean=" ".join("".join(c if c.isprintable() else " " for c in str(text)).split())
+    return clean if len(clean)<=limit else clean[:limit-1]+"…"
+
 def active_refs(prompt,guide_names,index=INDEX):
     obj=read_json(index,{})
     if not isinstance(obj,dict) or obj.get("version")!=FORMAT:return []
@@ -279,6 +284,7 @@ def active_refs(prompt,guide_names,index=INDEX):
         if p!=resolved or not any(resolved.is_relative_to(root) for root in allowed):continue
         if row["stamp"]!=[now.st_mtime_ns,now.st_size,now.st_ino]:continue
         out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),
+                    "summary":summary(row.get("description","")),
                     "selection_reason":(explanations.get(row["path"]) if stage=="open-search" else None)
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
     return out[:8]
