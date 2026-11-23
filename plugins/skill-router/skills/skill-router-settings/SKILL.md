@@ -1,6 +1,7 @@
 ---
 name: skill-router-settings
 description: Manage Skill Router beta scope only when explicitly invoked. Show status and switch the current project, all local projects, or folderless chats on or off, and refresh the local installed-skill index.
+disable-model-invocation: true
 ---
 # Skill Router 設定
 この SKILL.md と同じフォルダにある router.py を使う。実行には Windows では `python -I -B -X utf8`、macOS/Linux では `python3 -I -B -X utf8` を使う。スクリプトパスはこのスキルの場所から解決する。作業ディレクトリは現在のチャットの作業フォルダを維持する。

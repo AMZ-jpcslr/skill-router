@@ -10,14 +10,14 @@ import tempfile
 import unicodedata
 
 HOME=Path.home()
-STATE=HOME/".skill-router-beta"
+STATE=Path(os.environ.get("SKILL_ROUTER_STATE_DIR") or HOME/".skill-router-beta")
 INDEX=STATE/"skill-index.json"
 ROOTS=STATE/"skill-roots.json"
 MAX_BYTES=12_000_000
 MAX_SKILLS=12_000
 MAX_DIRS=20_000
 NAME=re.compile(r"[a-z0-9][a-z0-9-]{0,79}\Z")
-DEFAULT=(HOME/".agents/skills", HOME/".codex/skills")
+DEFAULT=(HOME/".agents/skills", HOME/".codex/skills", HOME/".claude/skills")
 FORMAT=1
 OPEN=runpy.run_path(str(Path(__file__).with_name("open_routing.py")))
 
