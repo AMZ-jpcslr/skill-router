@@ -1,6 +1,7 @@
 ---
 name: skill-suggest
 description: Suggest relevant installed or curated public skills on explicit request. Optional manual category history; never install, apply, or run a candidate.
+disable-model-invocation: true
 ---
 # スキルのおすすめ
 このファイルと同じフォルダの `suggest.py` を使う。Windowsでは `python -I -B -X utf8`、macOS/Linuxでは `python3 -I -B -X utf8` で実行し、スクリプトのパスはこのSKILL.mdの場所から解決する。フックは不要。

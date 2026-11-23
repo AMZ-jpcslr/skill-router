@@ -2,7 +2,6 @@
 import json
 import os
 from pathlib import Path
-import shlex
 import subprocess
 import sys
 import tempfile
@@ -20,7 +19,8 @@ class PackagedReadmeRouting(unittest.TestCase):
             home = Path(folder)
             project = home / "trial"
             project.mkdir()
-            env = dict(os.environ, HOME=folder, USERPROFILE=folder, PLUGIN_ROOT=str(PLUGIN))
+            # Codex sets CLAUDE_PLUGIN_ROOT alongside PLUGIN_ROOT for compatibility.
+            env = dict(os.environ, HOME=folder, USERPROFILE=folder, PLUGIN_ROOT=str(PLUGIN), CLAUDE_PLUGIN_ROOT=str(PLUGIN))
             env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env["PATH"]
 
             def run(command, payload=None):
@@ -39,7 +39,7 @@ class PackagedReadmeRouting(unittest.TestCase):
             cli = [sys.executable, "-I", "-B", "-X", "utf8", str(ROUTER)]
             self.assertEqual(run(cli + ["index", "refresh"])["indexed"], 3)
             self.assertTrue(run(cli + ["project", "on"])["current_active"])
-            hook_command = HOOK["commandWindows"] if os.name == "nt" else shlex.split(HOOK["command"])
+            hook_command = HOOK["commandWindows"] if os.name == "nt" else ["sh", "-c", HOOK["command"]]
             cases = [
                 ("READMEを読みやすくしてください。", {"readme"}),
                 ("Rewrite the README for new users.", {"readme"}),

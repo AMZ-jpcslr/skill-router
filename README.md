@@ -24,6 +24,17 @@ Codex Desktop、[プラグイン管理に対応したCodex CLI](https://develope
 
 展開先はプラグインの配布元として使うため、導入後も残しておきます。
 
+### Claude Code（開発中のプレビュー）
+
+Claude Codeでは、次の2行で導入できます。PATHに登録したPython 3.10以上が必要です。`python3` が使えない環境（WindowsのMicrosoft Storeの代替コマンドなど）では `python` を使います。
+
+```text
+/plugin marketplace add AMZ-jpcslr/skill-router
+/plugin install skill-router@skill-router-preview
+```
+
+設定は `/skill-router:skill-router-settings`、おすすめは `/skill-router:skill-suggest` で呼び出します。設定と索引はCodex版と共通（`~/.skill-router-beta/`）で、`~/.claude/skills` も索引の対象です。
+
 ## 2. 初回セットアップ
 
 1. Codex Desktopで使いたい作業フォルダを開き、新規チャットを始めます。

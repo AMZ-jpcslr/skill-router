@@ -13,14 +13,18 @@ QUOTE=re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”")
 # The markers describe grammatical roles, not specific deliverable domains.
 EXAMPLE=re.compile(r"^(?:参考(?:資料|例)?|素材|背景|作例|例文|(?:デモに出す|画面に出す)例|(?:動画|画像|デモ|映像)の中(?:では|で|に)|デモ(?:用|内)(?:では|で|に)?|例として)(?:[:：\s、]|(?<=では)|(?<=で)|(?<=として)|$)")
 SOURCE=re.compile(r"(?:を|の内容を)(?:例|作例|参考|素材|題材|サンプル)(?:と|に)して|を(?:参考|素材|題材|例)に|(?:例|資料|素材|参考)を(?:もと|元|基)に|(?:から|で)(?:引用|参照)して|(?:流れ|場面|様子|例)(?:を|として)(?:見せ|描|再現|使)|例として(?:見せ|描|使)|(?:を|も)(?:参照|参考に)して")
-NOT_REQUEST=re.compile(r"しないで|せずに|は不要|は変更しない|は修正しない|するべきか|したほうがいい|できるか教え|(?:方法|意味)(?:を教え|が載|は何)|例です|載っています|とは[？?]|だけを参考")
+NOT_REQUEST=re.compile(r"\b(?:do not|don't|never|without)\b|しないで|せずに|は不要|は変更しない|は修正しない|するべきか|したほうがいい|できるか教え|(?:方法|意味)(?:を教え|が載|は何)|例です|載っています|とは[？?]|だけを参考")
 REQUEST=re.compile(r"して|(?:作り|書き)直し(?:て|ください)|(?:更新|修正|編集|追加|作成)し\s*$|作って|書いて|まとめて|仕上げて|書き出して|レンダリングして|整えて|直して|調べて|提案して|付けて|入れて|追加して|切って|分けて|保存して|用意して|生成して|確認して|(?:を|で)(?:制作|作成|編集|抽出|変換|整理|実装|検証|追加|推敲|校正)\s*$|\b(?:create|generate|render|transcribe|extract|convert|rewrite|revise|polish|validate|fix|edit|summarize|compile|proofread|write|build|test|make|produce|explain|describe|export)\b")
 HEADING=re.compile(r"^(?:成果物|納品物|作業|依頼|お願い|やること|出力|deliverables?|task)\s*[:：]\s*")
 SECTION=re.compile(r"^\s*(?:【([^】]+)】|#{1,6}\s+([^:：\n]+))\s*[\\:]?\s*$")
 CONTEXT_ONLY=re.compile(r"^(?:素材|背景|参考(?:資料|例)?|伝えたいこと|作例|例文|コンセプト|source materials?|examples?|background)$")
 OUTPUT_LABEL=re.compile(r"^(?:.+?(?:動画|画像|音声|スライド|ドキュメント|成果物)|動画|画像|音声|スライド|成果物|納品物|outputs?|deliverables?)$")
 OUTPUT_VERB=re.compile(r"(?:を|に)(?:作る|制作する|作成する|生成する|書き出す|用意する|出す)\s*$")
-SPLIT=re.compile(r"[。\n；;]|[、,]\s*(?=(?:さらに|次に|続けて|その後|別途|一方|あわせて|併せて|そして|ほかに))")
+# English sentences end with ". " (or ?/!) followed by a new sentence; file names such as
+# "README.md" have no space after the dot and stay intact.
+SPLIT=re.compile(r"[。\n；;]|(?<=[a-z0-9)\]\"'])[.?!]\s+(?=[a-z])|[、,]\s*(?=(?:さらに|次に|続けて|その後|別途|一方|あわせて|併せて|そして|ほかに))")
+
+KEEP_AS_IS=re.compile(r"(?:変え|変更し|触ら|残さ|含め|し)ない|維持|保持|そのまま|禁止|不要")
 
 def work_clauses(text):
     clean=FENCE.sub(" ",normalize(text))
@@ -49,7 +53,11 @@ def work_clauses(text):
                 part=tail if REQUEST.search(tail) else ""
             if not part:continue
             # Preserve an earlier request followed by a prohibition about a separate item.
-            part=re.split(r"[、,]\s*(?=(?:公開|共有|コミット|プッシュ|push|既存ファイル|(?:日本語の)?(?:文体|語調|言い回し)))",part,maxsplit=1)[0]
+            # Drop the tail only when it is that prohibition ("…して、コミットはしないで"), not
+            # when it is the request itself ("変更を見て、コミットメッセージを書いて").
+            head,*tail=re.split(r"[、,]\s*(?=(?:公開|共有|コミット|プッシュ|push|既存ファイル|(?:日本語の)?(?:文体|語調|言い回し)))",part,maxsplit=1)
+            if tail and (KEEP_AS_IS.search(tail[0]) or NOT_REQUEST.search(tail[0])):
+                part=head
             part=HEADING.sub("",part)
             if (REQUEST.search(part) or video_operation(part) in {"video-explain","video-extract","video-extract-audio","video-extract-frames","video-frames-ocr"} or OUTPUT_LABEL.fullmatch(section) and OUTPUT_VERB.search(part)) and (not NOT_REQUEST.search(part) or video_operation(part)=="video-explain"):
                 parts.append((section+" "+part if OUTPUT_LABEL.fullmatch(section) else part))
@@ -111,7 +119,7 @@ ALIASES={
  "raster": r"png|jpeg|ビットマップ|\braster\b|\bbitmaps?\b",
  "image": r"画像|イラスト|ビットマップ|png|jpeg|\b(?:images?|imagegen|illustrations?|bitmaps?|raster)\b",
  "animation": r"アニメーション|(?<!ロ)モーション|\banimat(?:ion|e|ed)\b",
- "create": r"制作|生成|作成|作って|作り直|作る|書き出|\b(?:generat\w+|creat\w+|render\w+|produc\w+)\b",
+ "create": r"制作|生成|作成|作って|作り直|作る|書き出|(?<!に)書いて|\b(?:generat\w+|creat\w+|render\w+|produc\w+|writ(?:e|es|ing))\b",
  "extract": r"抽出|切り出|\bextract\w*\b",
  "frames": r"フレーム|コマ(?:を|の)|\b(?:key ?frames?|frames?)\b",
  "ocr": r"文字認識|\bocr\b|\boptical character recognition\b",
@@ -125,7 +133,14 @@ ALIASES={
  "schedule": r"カレンダー|予定|\b(?:calendars?|schedule\w*|events?)\b",
  "check": r"確認|検証|\b(?:check\w*|verif\w+|test\w*)\b",
  "translate": r"翻訳|訳して|\btranslat\w+\b",
- "location": r"地図|位置情報|\b(?:map|maps|geospatial)\b"
+ "location": r"地図|位置情報|\b(?:map|maps|geospatial)\b",
+ # Developer writing tasks: Japanese loanwords must meet the English skill descriptions.
+ # Latin words are bounded by lookarounds because Japanese particles count as \w.
+ "proofread": r"校正|文法|誤字|スペル(?:ミス)?|(?<![a-z0-9])(?:proofread\w*|grammar|spelling|typos?)(?![a-z0-9])",
+ "commit": r"コミット|(?<![a-z0-9])commit(?:s|ted|ting)?(?![a-z0-9])",
+ "changelog": r"チェンジログ|リリースノート|(?<![a-z0-9])(?:changelogs?|release notes)(?![a-z0-9])",
+ "pull-request": r"プルリク(?:エスト)?|(?<![a-z0-9])pull requests?(?![a-z0-9])|(?<![a-z0-9])(?<!自己)prs?(?![a-z0-9])",
+ "code-review": r"コードレビュー|(?<![a-z0-9])(?:code[- ]?review\w*|review(?:ing)? (?:the |this |your )?code)(?![a-z0-9])"
 }
 SPECIALIZATIONS={
     "search marketing": r"\bseo(?:\b|[- ])|検索順位",
@@ -133,6 +148,8 @@ SPECIALIZATIONS={
     "third-party provider": r"\bgemini(?:\b|[- ])|nano banana",
 }
 SCOPE={key:re.compile(rx,re.I) for key,rx in SPECIALIZATIONS.items()}
+# Named developer/writing tasks. Each is specific enough to qualify a candidate alone.
+TASKS={"proofread","commit","changelog","pull-request","code-review"}
 OPS={"create","extract","ocr","edit","convert","transcribe","organize","check","translate"}
 GENERIC={"using","with","from","into","task","works","use","skill","please","when","for","have","make","all","best","practices","tool","tools","and","the","output"}
 PATTERNS={k:re.compile(v) for k,v in ALIASES.items()}
@@ -305,7 +322,7 @@ def rank_open(parts, records, known_for, top=8, explanations=None):
                 # or have concrete repository/tool vocabulary / multiple rare words.
                 if operations and not operations&dc:
                     if len(name)<2:continue
-                if not ((hit and (sem&OPS or name)) or len(name)>=2 or len(exact)>=3 or len(jp)>=5):
+                if not ((hit and (sem&OPS or name or hit&TASKS)) or len(name)>=2 or len(exact)>=3 or len(jp)>=5):
                     continue
                 score=(sum(weight(t) for t in exact)*1.1
                        +sum(weight(t) for t in name)*1.1
@@ -320,11 +337,32 @@ def rank_open(parts, records, known_for, top=8, explanations=None):
                 # Specific tool requested: prefer its implementation over vague "editor" overlap.
                 if operations and (operations&dc)!=operations:
                     score-=1.4*len(operations-dc)
+                # Within a task family named by the skills themselves, prefer the general
+                # one ("code-reviewer") to a qualified one ("receiving-code-review").
+                # A named task the candidate never mentions is a weak fit, however much
+                # incidental vocabulary it shares.
+                if targets&TASKS and not hit&TASKS:
+                    score-=3
+                family=nconcepts&hit&TASKS
+                if family:
+                    rest=normalize(row["name"])
+                    for key in family:rest=PATTERNS[key].sub(" ",rest)
+                    score-=.9*len(set(LATIN.findall(rest))-ql-GENERIC)
                 pool.append((score,row))
             pool.sort(key=lambda item:(-item[0],item[1]["name"],item[1]["path"]))
             shortlist=pool[:top]
-            if shortlist and shortlist[0][0]>=5.25 and (len(shortlist)==1 or shortlist[0][0]-shortlist[1][0]>=.8):
+            tied=[]
+            if shortlist and shortlist[0][0]>=5.25 and len(shortlist)>1 and shortlist[0][0]-shortlist[1][0]<.8:
+                # Up to three equally strong members of the same named task family are all
+                # offered; the agent chooses between them. Any other tie stays unresolved.
+                fam=lambda r:features(r["name"])[2]&targets&TASKS
+                top_fam=fam(shortlist[0][1])
+                group=[r for sc,r in shortlist if shortlist[0][0]-sc<.8]
+                if top_fam and len(group)<=3 and all(fam(r)==top_fam for r in group):
+                    tied=group[1:]
+            if shortlist and shortlist[0][0]>=5.25 and (len(shortlist)==1 or shortlist[0][0]-shortlist[1][0]>=.8 or tied):
                 out.append(("open-search",shortlist[0][1]))
+                out.extend(("open-search",r) for r in tied)
                 if explanations is not None:
                     explanations.setdefault(shortlist[0][1]["path"], {
                         "operation":target or "general", "basis":"metadata_match",
