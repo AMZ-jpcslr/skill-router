@@ -14,7 +14,7 @@ QUOTE=re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”")
 EXAMPLE=re.compile(r"^(?:参考(?:資料|例)?|素材|背景|作例|例文|(?:デモに出す|画面に出す)例|(?:動画|画像|デモ|映像)の中(?:では|で|に)|デモ(?:用|内)(?:では|で|に)?|例として)(?:[:：\s、]|(?<=では)|(?<=で)|(?<=として)|$)")
 SOURCE=re.compile(r"(?:を|の内容を)(?:例|作例|参考|素材|題材|サンプル)(?:と|に)して|を(?:参考|素材|題材|例)に|(?:例|資料|素材|参考)を(?:もと|元|基)に|(?:から|で)(?:引用|参照)して|(?:流れ|場面|様子|例)(?:を|として)(?:見せ|描|再現|使)|例として(?:見せ|描|使)|(?:を|も)(?:参照|参考に)して")
 NOT_REQUEST=re.compile(r"\b(?:do not|don't|never|without)\b|しないで|せずに|は不要|は変更しない|は修正しない|するべきか|したほうがいい|できるか教え|(?:方法|意味)(?:を教え|が載|は何)|例です|載っています|とは[？?]|だけを参考")
-REQUEST=re.compile(r"して|(?:作り|書き)直し(?:て|ください)|(?:更新|修正|編集|追加|作成)し\s*$|作って|書いて|まとめて|仕上げて|書き出して|レンダリングして|整えて|直して|調べて|提案して|付けて|入れて|追加して|切って|分けて|保存して|用意して|生成して|確認して|(?:を|で)(?:制作|作成|編集|抽出|変換|整理|実装|検証|追加|推敲|校正)\s*$|\b(?:create|generate|render|transcribe|extract|convert|rewrite|revise|polish|validate|fix|edit|summarize|compile|proofread|write|build|test|make|produce|explain|describe|export)\b")
+REQUEST=re.compile(r"して|(?:作り|書き)直し(?:て|ください)|(?:更新|修正|編集|追加|作成)し\s*$|作って|書いて|まとめて|仕上げて|書き出して|レンダリングして|整えて|直して|調べて|提案して|付けて|入れて|追加して|切って|分けて|保存して|用意して|生成して|確認して|(?:を|で)(?:制作|作成|編集|抽出|変換|整理|実装|検証|追加|推敲|校正)\s*$|\b(?:create|generate|render|transcribe|extract|convert|rewrite|revise|polish|validate|fix|edit|summarize|compile|proofread|write|build|test|make|produce|explain|describe|export|remove|strip|humanize|clean up|tighten)\b")
 HEADING=re.compile(r"^(?:成果物|納品物|作業|依頼|お願い|やること|出力|deliverables?|task)\s*[:：]\s*")
 SECTION=re.compile(r"^\s*(?:【([^】]+)】|#{1,6}\s+([^:：\n]+))\s*[\\:]?\s*$")
 CONTEXT_ONLY=re.compile(r"^(?:素材|背景|参考(?:資料|例)?|伝えたいこと|作例|例文|コンセプト|source materials?|examples?|background)$")
@@ -123,7 +123,7 @@ ALIASES={
  "extract": r"抽出|切り出|\bextract\w*\b",
  "frames": r"フレーム|コマ(?:を|の)|\b(?:key ?frames?|frames?)\b",
  "ocr": r"文字認識|\bocr\b|\boptical character recognition\b",
- "edit": r"編集|修正|直して|\bedit\w*\b",
+ "edit": r"編集|修正|直して|\b(?:edit\w*|rewrit\w*)\b",
  "convert": r"変換|\bconvert\w*\b",
  "audio": r"音声|録音|\b(?:audio|recordings?)\b",
  "transcribe": r"文字起こし|書き起こ|\b(?:transcri\w+|speech.to.text)\b",
@@ -140,16 +140,21 @@ ALIASES={
  "commit": r"コミット|(?<![a-z0-9])commit(?:s|ted|ting)?(?![a-z0-9])",
  "changelog": r"チェンジログ|リリースノート|(?<![a-z0-9])(?:changelogs?|release notes)(?![a-z0-9])",
  "pull-request": r"プルリク(?:エスト)?|(?<![a-z0-9])pull requests?(?![a-z0-9])|(?<![a-z0-9])(?<!自己)prs?(?![a-z0-9])",
- "code-review": r"コードレビュー|(?<![a-z0-9])(?:code[- ]?review\w*|review(?:ing)? (?:the |this |your )?code)(?![a-z0-9])"
+ "code-review": r"コードレビュー|(?<![a-z0-9])(?:code[- ]?review\w*|review(?:ing)? (?:the |this |your )?code)(?![a-z0-9])",
+ # Internal status reports and AI-sounding prose: named the same way in requests and skills.
+ "status-update": r"(?<![a-z0-9])3p ?(?:アップデート|updates?)|週次(?:報告|レポート|アップデート)|進捗報告|ステータス(?:報告|レポート)|(?<![a-z0-9])(?:status (?:reports?|updates?)|leadership updates?|weekly updates?)(?![a-z0-9])",
+ "ai-writing": r"(?<![a-z0-9])ai(?:っぽ|臭|らし)|人間が書いた(?:ような|みたい|よう)|(?<![a-z0-9])(?:ai[- ](?:writing(?: patterns?)?|isms?|slop|tells?)|sounds? (?:like )?(?:an? )?ai(?:[- ](?:generated|written))?|(?:reads?|sounds?) like (?:a )?human|humans? wrote|humaniz\w*)(?![a-z0-9])"
 }
 SPECIALIZATIONS={
     "search marketing": r"\bseo(?:\b|[- ])|検索順位",
     "editorial article": r"\barticles?\b|記事",
     "third-party provider": r"\bgemini(?:\b|[- ])|nano banana",
+    "chinese text": r"\bchinese\b|中文|中国語",
+    "social post": r"\blinkedin\b|リンクトイン",
 }
 SCOPE={key:re.compile(rx,re.I) for key,rx in SPECIALIZATIONS.items()}
 # Named developer/writing tasks. Each is specific enough to qualify a candidate alone.
-TASKS={"proofread","commit","changelog","pull-request","code-review"}
+TASKS={"proofread","commit","changelog","pull-request","code-review","status-update","ai-writing"}
 OPS={"create","extract","ocr","edit","convert","transcribe","organize","check","translate"}
 GENERIC={"using","with","from","into","task","works","use","skill","please","when","for","have","make","all","best","practices","tool","tools","and","the","output"}
 PATTERNS={k:re.compile(v) for k,v in ALIASES.items()}
@@ -342,7 +347,16 @@ def rank_open(parts, records, known_for, top=8, explanations=None):
                 # A named task the candidate never mentions is a weak fit, however much
                 # incidental vocabulary it shares.
                 if targets&TASKS and not hit&TASKS:
-                    score-=3
+                    score-=5
+                # A skill for another named task ("unslop-review" for review comments) is a
+                # specialisation the request did not ask for.
+                score-=2.5*len((nconcepts&TASKS)-qc)
+                # The request and the skill naming the task with the same phrase
+                # ("3P update") is stronger than a merely related one ("weekly updates").
+                for key in hit&TASKS:
+                    said=lambda text:{m.group().rstrip("s") for m in PATTERNS[key].finditer(text)}
+                    if said(normalize(part))&said(normalize(row["name"]+" "+row["description"])):
+                        score+=3
                 family=nconcepts&hit&TASKS
                 if family:
                     rest=normalize(row["name"])
