@@ -32,6 +32,22 @@ QUOTED = re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”")
 STOP = re.compile(r"(?:変え|変更し|修正し|追加し|実行し|使わ|書か|残さ|直さ)ない|(?:不要|禁止)|しなくて(?:いい|よい)|しないで|(?:方法|意味|例)(?:は|を教えて)")
 EDIT = re.compile(r"直し|直す|修正|変更|更新|編集|追記|書き換|書き直|(?:回|動)るよう|改良|update|edit|fix", re.I)
 
+README_TARGET = re.compile(r"(?<![A-Za-z0-9_])readme(?![A-Za-z0-9_])", re.I)
+README_EDIT = re.compile(
+    r"推敲|校正|整え"
+    r"|読みやすく\s*(?:して|してください|してほしい)"
+    r"|\b(?:rewrite|revise|polish|proofread)\b"
+    r"|\bmake\b.{0,90}\b(?:more readable|easier to read)\b",
+    re.I,
+)
+README_NON_EDIT = re.compile(
+    r"(?:しないで|せずに|しなくていい)"
+    r"|(?:方法|手順|コツ)(?:だけ|を)?(?:教え|説明|解説|知り)"
+    r"|\b(?:do not|don['’]t|never|without)\s+(?:rewrite|revise|polish|proofread|make|edit|update|fix)\b"
+    r"|\b(?:how (?:to|do i|can i|should i)|(?:explain|describe|show me) how|(?:instructions|tips) (?:for|on))\b",
+    re.I,
+)
+
 def narrow_pick(prompt):
     t = unicodedata.normalize("NFKC", prompt).strip()
     if not t or SMALL.fullmatch(t) or OPT_OUT.search(t) or re.match(r"^\s*[@$]?\S*skill-router-settings\b",t,re.I):
@@ -41,7 +57,8 @@ def narrow_pick(prompt):
     out = []
     debug = any(not STOP.search(p) and re.search(r"不具合|エラー|原因(?:を|調査)|バグ|bug|regression",p,re.I) and (EDIT.search(p) or re.search(r"再現|調べ|特定|diagnos",p,re.I)) for p in parts)
     tests = any(not STOP.search(p) and re.search(r"回帰テスト|再発防止.*テスト|regression test",p,re.I) and re.search(r"追加|作成|書|実行|確認|add|write|run",p,re.I) for p in parts)
-    if any(re.search(r"(?<![A-Za-z0-9_])readme(?![A-Za-z0-9_])",p,re.I) and (EDIT.search(p) or re.search(r"推敲|校正|整え",p)) and not STOP.search(p) for p in parts):
+    if any(README_TARGET.search(p) and (EDIT.search(p) or README_EDIT.search(p))
+           and not STOP.search(p) and not README_NON_EDIT.search(p) for p in parts):
         out.append("readme")
     if debug:
         out.append("debugging")
