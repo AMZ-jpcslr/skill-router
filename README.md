@@ -26,7 +26,7 @@ Codex Desktop、[プラグイン管理に対応したCodex CLI](https://develope
 
 ### Claude Code（開発中のプレビュー）
 
-Claude Codeでは、次の2行で導入できます。macOS・Linuxでは `python3`、Windowsでは `python3` として呼べるPython 3.10以上が必要です（Windowsでの通し確認は未了です）。
+Claude Codeでは、次の2行で導入できます。PATHに登録したPython 3.10以上が必要です。`python3` が使えない環境（WindowsのMicrosoft Storeの代替コマンドなど）では `python` を使います。
 
 ```text
 /plugin marketplace add AMZ-jpcslr/skill-router

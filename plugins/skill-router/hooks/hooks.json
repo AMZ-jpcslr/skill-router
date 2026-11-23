@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 -I -B -X utf8 -c \"import os,runpy;runpy.run_path(os.path.join(os.environ.get('PLUGIN_ROOT') or os.environ['CLAUDE_PLUGIN_ROOT'],'hooks','run_hook.py'),run_name='__main__')\"",
+            "command": "python3 -I -B -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.py\" 2>/dev/null || python -I -B -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.py\"",
             "commandWindows": "python -I -B -X utf8 -c \"import os,runpy,sys;sys.argv.extend(['hook']);runpy.run_path(os.path.join(os.environ['PLUGIN_ROOT'],'skills','skill-router-settings','router.py'),run_name='__main__')\"",
             "timeout": 5,
             "statusMessage": "Skill Router beta.6"

@@ -1,7 +1,6 @@
 """Claude Code packaging and host-specific hook wording; temporary HOME only."""
 import json
 import os
-import shlex
 from pathlib import Path
 import subprocess
 import sys
@@ -33,7 +32,7 @@ class ClaudeCodeHost(unittest.TestCase):
         event = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt, "cwd": str(self.project)})
         if shell:
             hook = json.loads((PLUGIN / "hooks/hooks.json").read_text(encoding="utf-8"))["hooks"]["UserPromptSubmit"][0]["hooks"][0]
-            cmd = shlex.split(hook["command"])
+            cmd = ["sh", "-c", hook["command"]]
         else:
             cmd = [sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "hooks/run_hook.py")]
         r = subprocess.run(cmd, input=event.encode(), capture_output=True, env=env, cwd=self.project, timeout=30)
