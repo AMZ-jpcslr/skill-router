@@ -92,6 +92,11 @@ class IndexCache(unittest.TestCase):
         saved, stats = self.K["update"](ROWS[:3], {}, runner=flaky, workers=1, batch=1)
         self.assertEqual((len(saved), stats["keywords_failed"], stats["keywords_missing"]), (1, 2, 2))
 
+    def test_same_skill_in_two_places_is_one_candidate(self):
+        a = row("dup-skill", "Docker containerization expert: create Dockerfiles.", 500)
+        b = dict(a, path="/other/dup-skill/SKILL.md", stamp=[501, 1, 501])
+        self.assertEqual(len(self.L["one_per_name"]([a, b] + ROWS)), len(ROWS) + 1)
+
     def test_keyword_needs_every_word(self):
         # "チーム 連絡" is not said by "Memoチーム" alone.
         O = self.L["OPEN"]

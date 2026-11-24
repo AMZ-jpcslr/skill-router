@@ -270,6 +270,19 @@ def rank(prompt,records,guide_names,explanations=None,prepared=None):
 
 EDIT_OPS=frozenset({"edit","proofread","translate","ai-writing"})
 
+def one_per_name(records):
+    """The same skill installed in two places (~/.codex/skills and ~/.claude/skills) is one
+    candidate, not a tie that hides both. Prefer the copy Claude Code loads itself."""
+    native=(HOME/".claude"/"skills").as_posix().casefold()
+    best={}
+    for row in records:
+        key=row["name"]
+        here=Path(row["path"]).as_posix().casefold().startswith(native)
+        if key not in best or (here and not best[key][0]):
+            best[key]=(here,row)
+    keep={id(r) for _,r in best.values()}
+    return [r for r in records if id(r) in keep]
+
 def with_keywords(records,path=None):
     """Attach index-time keywords to rows whose SKILL.md has not changed since."""
     obj=read_json(path or KEYWORDS,{})
@@ -340,7 +353,7 @@ def active_refs(prompt,guide_names,index=INDEX):
     request=" ".join(OPEN["work_clauses"](prompt))
     asked=OPEN["features"](request)[2]
     editing=bool(asked&EDIT_OPS or JP_EDIT.search(request)) and "create" not in asked
-    records=with_keywords(obj["records"])
+    records=with_keywords(one_per_name(obj["records"]))
     for stage,row in rank(prompt,records,guide_names,explanations,prepared_features(records)):
         p=Path(row["path"])
         if not NAME.fullmatch(row["name"]) or any(ord(c)<32 for c in str(p)) or p.name!="SKILL.md":continue
