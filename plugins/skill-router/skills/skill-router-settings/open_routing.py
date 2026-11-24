@@ -14,7 +14,7 @@ QUOTE=re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”")
 EXAMPLE=re.compile(r"^(?:参考(?:資料|例)?|素材|背景|作例|例文|(?:デモに出す|画面に出す)例|(?:動画|画像|デモ|映像)の中(?:では|で|に)|デモ(?:用|内)(?:では|で|に)?|例として)(?:[:：\s、]|(?<=では)|(?<=で)|(?<=として)|$)")
 SOURCE=re.compile(r"(?:を|の内容を)(?:例|作例|参考|素材|題材|サンプル)(?:と|に)して|を(?:参考|素材|題材|例)に|(?:例|資料|素材|参考)を(?:もと|元|基)に|(?:から|で)(?:引用|参照)して|(?:流れ|場面|様子|例)(?:を|として)(?:見せ|描|再現|使)|例として(?:見せ|描|使)|(?:を|も)(?:参照|参考に)して")
 NOT_REQUEST=re.compile(r"\b(?:do not|don't|never|without)\b|しないで|せずに|は不要|は変更しない|は修正しない|するべきか|したほうがいい|できるか教え|(?:方法|意味)(?:を教え|が載|は何)|例です|載っています|とは[？?]|だけを参考")
-REQUEST=re.compile(r"して|(?:作り|書き)直し(?:て|ください)|(?:更新|修正|編集|追加|作成)し\s*$|作って|書いて|まとめて|仕上げて|書き出して|レンダリングして|整えて|直して|調べて|提案して|付けて|入れて|追加して|切って|分けて|保存して|用意して|生成して|確認して|(?:を|で)(?:制作|作成|編集|抽出|変換|整理|実装|検証|追加|推敲|校正)\s*$|\b(?:create|generate|render|transcribe|extract|convert|rewrite|revise|polish|validate|fix|edit|summarize|compile|proofread|write|build|test|make|produce|explain|describe|export|remove|strip|humanize|clean up|tighten)\b")
+REQUEST=re.compile(r"して|考えて|(?:相手|役)になって|(?:作り|書き)直し(?:て|ください)|(?:更新|修正|編集|追加|作成)し\s*$|作って|書いて|まとめて|仕上げて|書き出して|レンダリングして|整えて|直して|調べて|提案して|付けて|入れて|追加して|切って|分けて|保存して|用意して|生成して|確認して|(?:を|で)(?:制作|作成|編集|抽出|変換|整理|実装|検証|追加|推敲|校正)\s*$|\b(?:create|generate|render|transcribe|extract|convert|rewrite|revise|polish|validate|fix|edit|summarize|compile|proofread|write|build|test|make|produce|explain|describe|export|remove|strip|humanize|clean up|tighten)\b")
 HEADING=re.compile(r"^(?:成果物|納品物|作業|依頼|お願い|やること|出力|deliverables?|task)\s*[:：]\s*")
 SECTION=re.compile(r"^\s*(?:【([^】]+)】|#{1,6}\s+([^:：\n]+))\s*[\\:]?\s*$")
 CONTEXT_ONLY=re.compile(r"^(?:素材|背景|参考(?:資料|例)?|伝えたいこと|作例|例文|コンセプト|source materials?|examples?|background)$")
@@ -326,20 +326,63 @@ def role_picks(parts, records, explanations=None):
                     "score":choices[0][0], "runner_up":choices[1][0] if len(choices)>1 else None})
     return picks,covered
 
-def rank_open(parts, records, known_for, top=8, explanations=None):
-    """Retrieve by content and reject weak, operation-mismatched, or tied candidates."""
+def keyword_terms(row):
+    """Index-time keywords and aliases (written by the host model at refresh), normalized."""
+    out=[]
+    for k in row.get("keywords") or ():
+        k=normalize(str(k)).strip()
+        if 2<=len(k)<=40 and k not in out:out.append(k)
+    return out[:16]
+
+# A keyword such as "スライド作成" also matches "スライドを作成して": the subject is said,
+# and so is the same action word.
+ACTION_TAIL=re.compile(r"(作成|生成|作り|作る|開発|設計|変換|編集|修正|分析|確認|管理|追加|整理|翻訳|添削|校正|要約|化)$")
+
+def said_keyword(k,part):
+    if k in part:return True
+    m=ACTION_TAIL.search(k)
+    if not m:return False
+    stem=k[:m.start()]
+    return len(stem)>=2 and stem in part and m.group(1) in part
+
+def prepare(row):
+    """Everything rank_open needs from one skill row; cacheable per row (see local_index)."""
+    n,d=row["name"],row["description"]
+    positive=re.split(r"(?i)\b(?:do not use|not intended for|avoid using)\b",d,maxsplit=1)[0]
+    keywords=keyword_terms(row)
+    # Keywords count only when the request says one (below); folding them into the
+    # description's vocabulary added operations and tasks the skill never claimed.
+    meta=features(n+" "+positive)
+    return (features(n)[0],features(n)[2],meta,
+            frozenset(k for k,v in SCOPE.items() if v.search(n+" "+positive[:160])),
+            tuple(k for k in keywords if JP.search(k)))
+
+def pack(entry):
+    nwords,nconcepts,meta,scope,kw=entry
+    return [sorted(nwords),sorted(nconcepts),[sorted(x) for x in meta],sorted(scope),list(kw)]
+
+def unpack(raw):
+    nwords,nconcepts,meta,scope,kw=raw
+    return (frozenset(nwords),frozenset(nconcepts),tuple(frozenset(x) for x in meta),frozenset(scope),tuple(kw))
+
+def catalog_counts(entries):
+    counts=Counter()
+    kcounts=Counter()
+    for entry in entries:
+        for group in entry[2]:counts.update(group)
+        kcounts.update(entry[4])
+    return counts,kcounts
+
+def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None):
+    """Retrieve by content and reject weak, operation-mismatched, or tied candidates.
+    prepared: optional {path: prepare(row)} computed ahead of time."""
     primary,covered=role_picks(parts,records,explanations)
     parts=[p for idx,p in enumerate(parts) if idx not in covered and not known_for(p)]
     if not parts:return primary
-    catalog=[]
-    counts=Counter()
-    for row in records:
-        n,d=row["name"],row["description"]
-        positive=re.split(r"(?i)\b(?:do not use|not intended for|avoid using)\b",d,maxsplit=1)[0]
-        meta=features(n+" "+positive)
-        catalog.append((row,features(n)[0],features(n)[2],meta,
-                        frozenset(k for k,v in SCOPE.items() if v.search(n+" "+positive[:160]))))
-        for group in meta:counts.update(group)
+    prepared=prepared or {}
+    catalog=[(row,*(prepared.get(row["path"]) or prepare(row))) for row in records]
+    # Term frequencies over the whole catalogue; a cache may supply them (see local_index).
+    counts,kcounts=getattr(prepared,"counts",None) or catalog_counts(c[1:] for c in catalog)
     size=len(catalog)
     if not size:return []
     def weight(k):return min(3.5,math.log(1+(size+.5)/(counts[k]+.5)))
@@ -351,7 +394,7 @@ def rank_open(parts, records, known_for, top=8, explanations=None):
         operations=qc&OPS
         for target in (tuple(sorted(targets & {"video","image","audio"})) if len(targets & {"video","image","audio"})>1 else (None,)):
             pool=[]
-            for row,nwords,nconcepts,(dl,dj,dc),scope in catalog:
+            for row,nwords,nconcepts,(dl,dj,dc),scope,kw in catalog:
                 exact=(ql&dl)-set(ALIASES)
                 sem=qc&dc
                 hit=targets&dc
@@ -363,12 +406,16 @@ def rank_open(parts, records, known_for, top=8, explanations=None):
                 jp=qj&dj
                 # A task term alone is insufficient. Match the operation as well,
                 # or have concrete repository/tool vocabulary / multiple rare words.
-                if operations and not operations&dc:
+                # A Japanese keyword written for this skill at index time ("お詫びメール"),
+                # said in the request, names the task itself, so it stands for the operation.
+                said_kw=[k for k in kw if said_keyword(k,part)]
+                if operations and not operations&dc and not said_kw:
                     if len(name)<2:continue
                 # One rare word shared by the request and the skill's name (Docker, Mermaid,
                 # Kubernetes) is concrete enough when the request asks for work.
                 rare_name=bool(operations) and any(weight(t)>=2.6 for t in name)
-                if not ((hit and (sem&OPS or name or hit&TASKS)) or len(name)>=2 or len(exact)>=3 or len(jp)>=5 or rare_name):
+                if not ((hit and (sem&OPS or name or hit&TASKS)) or len(name)>=2 or len(exact)>=3 or len(jp)>=5 or rare_name
+                        or said_kw):
                     continue
                 score=(sum(weight(t) for t in exact)*1.1
                        +sum(weight(t) for t in name)*1.1
@@ -379,6 +426,8 @@ def rank_open(parts, records, known_for, top=8, explanations=None):
                        - 2.7*len(scope-qscope)
                        +sum(weight(t) for t in sem&OPS)*1.15
                        +sum(weight(t) for t in jp)*.28
+                       # The strongest keyword only: "リファクタ" and "リファクタリング" are one term.
+                       +max((min(3.5,math.log(1+(size+.5)/(kcounts[k]+.5)))*min(1.,len(k)/4) for k in said_kw),default=0)*1.1
                        - .35*len((dc&OPS)-operations))
                 # Specific tool requested: prefer its implementation over vague "editor" overlap.
                 if operations and (operations&dc)!=operations:
