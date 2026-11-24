@@ -1,7 +1,6 @@
 ---
 name: skill-suggest
-description: On explicit request, review how you use your agent and suggest skill settings and public skills worth adding. Reads local prompt history read-only; never installs or runs a candidate.
-disable-model-invocation: true
+description: Use only when the user asks which skills to add or how to set up their skills (おすすめのスキル). Reviews local usage read-only; never installs.
 ---
 # スキルのおすすめ
 このファイルと同じフォルダの `suggest.py` を使う。Windowsでは `python -I -B -X utf8`、macOS/Linuxでは `python3 -I -B -X utf8` で実行し、スクリプトのパスはこのSKILL.mdの場所から解決する。

@@ -142,7 +142,7 @@ class ClaudeCodeHost(unittest.TestCase):
         self.assertEqual(claude["version"], codex["version"])
         entry = next(p for p in market["plugins"] if p["name"] == claude["name"])
         self.assertTrue((ROOT / entry["source"]).resolve() == PLUGIN.resolve())
-        for skill in ("skill-router-settings", "skill-suggest"):
+        for skill in ("skill-router-settings",):
             head = (PLUGIN / "skills" / skill / "SKILL.md").read_text(encoding="utf-8").split("---")[1]
             self.assertIn("disable-model-invocation: true", head)
 

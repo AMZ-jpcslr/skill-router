@@ -123,11 +123,12 @@ class SkillSuggest(unittest.TestCase):
         self.assertEqual([x["skill"] for x in out["local"]], ["terraform-modules"])
         self.assertEqual(out["public"], [])
 
-    def test_not_in_skill_lists(self):
+    def test_listed_briefly(self):
+        # Shown in the skill menu and callable when asked in words; one short line in the list.
         head = (PLUGIN / "skills/skill-suggest/SKILL.md").read_text(encoding="utf-8").split("---")[1]
-        self.assertIn("disable-model-invocation: true", head)
-        codex = (PLUGIN / "skills/skill-suggest/agents/openai.yaml").read_text(encoding="utf-8")
-        self.assertIn("allow_implicit_invocation: false", codex)
+        self.assertNotIn("disable-model-invocation", head)
+        desc = next(l for l in head.splitlines() if l.startswith("description:"))
+        self.assertLessEqual(len(desc), 200)
 
     def test_catalog_is_links_and_metadata_only(self):
         data = json.loads((PLUGIN / "skills/skill-suggest/catalog.json").read_text(encoding="utf-8"))
