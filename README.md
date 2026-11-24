@@ -6,34 +6,70 @@ Skill Routerは、依頼に合うスキルの参照先と作業ガイドを自�
 
 ![Skill Routerの紹介画像](assets/readme-hero-light.png)
 
-**公開版：Codex Desktop（Windows）β.6** ｜ **開発中：Claude Code版**
+- **標準では見えないスキルも使える**：Claude Codeが自分では読まない `~/.agents/skills` などのスキルからも、依頼に合うものを渡します。
+- **Claude CodeとCodexの両方で使える**：同じプラグインを両方に導入でき、設定と索引も共通です。
+- **2,000件規模でもスキル一覧の文字数枠を消費しない**：スキル一覧をまとめて渡さず、依頼ごとに合う候補だけを渡します。
 
-[β.6のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.6) · [紹介動画（19秒・MP4）](assets/skill-router-demo-light.mp4)
+**β.7：Claude Code・Codex Desktop（Windows）**
+
+[β.7のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7) · [紹介動画（19秒・MP4）](assets/skill-router-demo-light.mp4)
 
 ## 1. 導入する
 
-Codex Desktop、[プラグイン管理に対応したCodex CLI](https://developers.openai.com/codex/cli)、PATHに登録したPython 3.10以上を用意します。PowerShellで `python --version` を実行すると、バージョンを確認できます。
+PATHに登録したPython 3.10以上が必要です。PowerShellで `python --version` を実行すると、バージョンを確認できます。`python3` が使えない環境（WindowsのMicrosoft Storeの代替コマンドなど）では `python` を使います。
 
-1. [リリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.6)から配布ZIPを取得し、展開します。
-2. 展開したフォルダをPowerShellで開き、次の2行を実行します。
+### Claude Code
+
+1. Claude Codeのコマンド（`claude`）がまだ使えない場合は、PowerShellで導入します。
 
    ```powershell
+   irm https://claude.ai/install.ps1 | iex
+   ```
+
+   導入先の `%USERPROFILE%\.local\bin` がPATHにないと、`claude` が見つかりません。次の1行でPATHに加え、PowerShellを開き直します。
+
+   ```powershell
+   [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";$env:USERPROFILE\.local\bin", "User")
+   ```
+
+2. Claude Codeのチャットで、次の2行を実行します。
+
+   ```text
+   /plugin marketplace add AMZ-jpcslr/skill-router
+   /plugin install skill-router@skill-router-preview
+   ```
+
+設定は `/skill-router:skill-router-settings`、おすすめは `/skill-router:skill-suggest` で呼び出します。`~/.claude/skills` も索引の対象です。
+
+### Codex Desktop
+
+1. [プラグイン管理に対応したCodex CLI](https://developers.openai.com/codex/cli)がまだない場合は、Node.jsを入れたうえで導入します。
+
+   ```powershell
+   npm install -g @openai/codex
+   ```
+
+2. [リリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7)から配布ZIPを取得し、展開します。
+3. 展開したフォルダをPowerShellで開き、次を実行します。以前の版を入れていた場合は、先に1行目で古い配布元を外します。
+
+   ```powershell
+   codex plugin marketplace remove skill-router-preview
    codex plugin marketplace add .
    codex plugin add skill-router@skill-router-preview
    ```
 
-展開先はプラグインの配布元として使うため、導入後も残しておきます。
+展開先はプラグインの配布元として使うため、導入後も残しておきます。導入後はCodex Desktopを再起動します。
 
-### Claude Code（開発中のプレビュー）
+### 検索語を作る（初回に1回）
 
-Claude Codeでは、次の2行で導入できます。PATHに登録したPython 3.10以上が必要です。`python3` が使えない環境（WindowsのMicrosoft Storeの代替コマンドなど）では `python` を使います。
+日本語の依頼でも合うスキルを見つけやすくするため、スキルごとの検索語をClaude（haiku）で作ります。送るのはスキル名と説明の一部だけで、依頼の内容は送りません。数分かかり、少し利用料がかかります。Claude Codeのコマンド（`claude`）が必要です。
 
-```text
-/plugin marketplace add AMZ-jpcslr/skill-router
-/plugin install skill-router@skill-router-preview
+```powershell
+$r = (Get-ChildItem "$env:USERPROFILE\.claude\plugins", "$env:USERPROFILE\.codex\plugins" -Recurse -Filter router.py -ErrorAction SilentlyContinue | Where-Object FullName -like "*skill-router-settings*" | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+python $r index refresh --keywords
 ```
 
-設定は `/skill-router:skill-router-settings`、おすすめは `/skill-router:skill-suggest` で呼び出します。設定と索引はCodex版と共通（`~/.skill-router-beta/`）で、`~/.claude/skills` も索引の対象です。
+設定・索引・検索語はClaude CodeとCodexで共通（`~/.skill-router-beta/`）なので、1回で両方に効きます。スキルを追加・変更したら、もう一度実行します。
 
 ## 2. 初回セットアップ
 
