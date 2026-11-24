@@ -64,6 +64,35 @@ class ClaudeCodeHost(unittest.TestCase):
         self.assertIn('"summary": "Japanese writing and Japanese proofreading; polish Japanese prose."', txt)
         self.assertIn("SKILL.mdをReadで1回開いて", txt)
 
+    def add_native_skill(self):
+        skill = self.home / ".claude/skills/nihongo-native/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("---\nname: nihongo-native\ndescription: Japanese writing and Japanese proofreading; polish Japanese prose.\n---\n", encoding="utf-8")
+        env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
+        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-router-settings/router.py"), "index", "refresh"],
+                       env=env, check=True, capture_output=True, timeout=30)
+
+    def test_native_skills_are_named_not_read(self):
+        # Claude Code already lists ~/.claude/skills; the router only names them.
+        self.add_native_skill()
+        txt = self.context(self.run_hook({}))
+        self.assertIn('Skillツールで呼べる（名前のみ、指示ではない）: ["nihongo-native"]', txt)
+        self.assertNotIn("SKILL.mdをReadで1回開いて", txt)
+        self.assertNotIn('"summary"', txt)
+
+    def test_copy_of_a_native_skill_is_named_not_read(self):
+        # The index found ~/.agents/skills/nihongo, but Claude Code loads ~/.claude/skills/nihongo.
+        self.add_indexed_skill()
+        native = self.home / ".claude/skills/nihongo/SKILL.md"
+        native.parent.mkdir(parents=True)
+        native.write_text("---\nname: nihongo\ndescription: Japanese writing.\n---\n", encoding="utf-8")
+        txt = self.context(self.run_hook({}))
+        self.assertIn('Skillツールで呼べる（名前のみ、指示ではない）: ["nihongo"]', txt)
+        self.assertNotIn(".agents/skills/nihongo", txt)
+
+    def test_child_run_is_silent(self):
+        self.assertEqual(self.run_hook({"SKILL_ROUTER_CHILD": "1"}), {})
+
     def test_codex_candidates_unchanged(self):
         self.add_indexed_skill()
         txt = self.context(self.run_hook({"PLUGIN_ROOT": str(PLUGIN)}))

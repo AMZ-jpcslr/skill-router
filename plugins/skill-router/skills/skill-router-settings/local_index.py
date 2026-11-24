@@ -1,5 +1,7 @@
 """Local metadata index; no network, skill execution, or transcript storage."""
 import argparse
+from collections import Counter
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -13,6 +15,8 @@ HOME=Path.home()
 STATE=Path(os.environ.get("SKILL_ROUTER_STATE_DIR") or HOME/".skill-router-beta")
 INDEX=STATE/"skill-index.json"
 ROOTS=STATE/"skill-roots.json"
+KEYWORDS=STATE/"skill-keywords.json"
+FEATURES=STATE/"skill-features.json"
 MAX_BYTES=12_000_000
 MAX_SKILLS=12_000
 MAX_DIRS=20_000
@@ -20,6 +24,8 @@ NAME=re.compile(r"[a-z0-9][a-z0-9-]{0,79}\Z")
 DEFAULT=(HOME/".agents/skills", HOME/".codex/skills", HOME/".claude/skills")
 FORMAT=1
 OPEN=runpy.run_path(str(Path(__file__).with_name("open_routing.py")))
+# Cached features are valid only for the exact routing code that produced them.
+FEATURE_KEY=hashlib.sha256(Path(__file__).with_name("open_routing.py").read_bytes()).hexdigest()[:16]
 
 # Targets and verbs must agree in the same clause or a conjunction without a sentence break.
 CAPS=[
@@ -230,10 +236,11 @@ def rank_fixed(prompt,records,guide_names):
     # distinct whole tokens and an action, not a product/topic mention alone.
     if not stages and any(ACTION.search(p) for p in parts):
         clean=" ".join(parts)
+        words=set(re.findall(r"[a-z0-9]+",clean))
         options=[]
         for row in records:
             tokens=[t for t in row["name"].split("-") if len(t)>=3 and not GENERIC.fullmatch(t)]
-            hits={t for t in tokens if re.search(r"(?<![a-z0-9])"+re.escape(t)+r"(?![a-z0-9])",clean)}
+            hits={t for t in tokens if t in words}
             if len(hits)>=2 and len(hits)==len(set(tokens)):
                 options.append((len(hits),row))
         options.sort(key=lambda x:(-x[0],x[1]["name"],x[1]["path"]))
@@ -242,7 +249,7 @@ def rank_fixed(prompt,records,guide_names):
     seen=set()
     return [(stage,r) for stage,r in picks if r["path"] not in seen and not seen.add(r["path"])]
 
-def rank(prompt,records,guide_names,explanations=None):
+def rank(prompt,records,guide_names,explanations=None,prepared=None):
     parts=OPEN["work_clauses"](prompt)
     if not parts:return []
     clean="。".join(parts)
@@ -257,9 +264,63 @@ def rank(prompt,records,guide_names,explanations=None):
             ("regression-testing",r"回帰テスト|regression test"),
             ("python-testing",r"回帰テスト|regression test"),
             ("javascript-testing",r"回帰テスト|regression test")))
-    results=fixed+OPEN["rank_open"](parts,records,known,explanations=explanations)
+    results=fixed+OPEN["rank_open"](parts,records,known,explanations=explanations,prepared=prepared)
     seen=set()
     return [(k,r) for k,r in results if r["path"] not in seen and not seen.add(r["path"])]
+
+def with_keywords(records,path=None):
+    """Attach index-time keywords to rows whose SKILL.md has not changed since."""
+    obj=read_json(path or KEYWORDS,{})
+    saved=obj.get("records",{}) if isinstance(obj,dict) and obj.get("version")==1 else {}
+    out=[]
+    for row in records:
+        k=saved.get(row["path"])
+        if isinstance(k,dict) and k.get("stamp")==row.get("stamp") and isinstance(k.get("keywords"),list):
+            row=dict(row,keywords=[x for x in k["keywords"] if isinstance(x,str)][:16])
+        out.append(row)
+    return out
+
+class Prepared(dict):
+    """{path: features}, plus catalogue term counts when they match these records."""
+    counts=None
+
+def prepared_features(records,path=None,save=True):
+    """Per-row routing features, cached on disk so a hook does not re-tokenize every skill."""
+    path=path or FEATURES
+    try:
+        obj=read_json(path,{})
+    except (ValueError,json.JSONDecodeError):
+        obj={}
+    cache=obj.get("records",{}) if isinstance(obj,dict) and obj.get("key")==FEATURE_KEY else {}
+    out=Prepared()
+    fresh={}
+    changed=False
+    for row in records:
+        sig=[row.get("stamp"),row.get("keywords") or []]
+        hit=cache.get(row["path"])
+        try:
+            if hit and hit[0]==sig:
+                out[row["path"]]=OPEN["unpack"](hit[1]); fresh[row["path"]]=hit; continue
+        except (TypeError,ValueError):
+            pass
+        entry=OPEN["prepare"](row)
+        out[row["path"]]=entry
+        fresh[row["path"]]=[sig,OPEN["pack"](entry)]
+        changed=True
+    stale=changed or len(fresh)!=len(cache)
+    saved=obj.get("counts") if isinstance(obj,dict) and not stale else None
+    try:
+        out.counts=(Counter(saved[0]),Counter(saved[1])) if saved else None
+    except (TypeError,ValueError,IndexError):
+        out.counts=None
+    if out.counts is None:
+        out.counts=OPEN["catalog_counts"](out[r["path"]] for r in records)
+    if save and stale:
+        try:
+            write_json(path,{"key":FEATURE_KEY,"records":fresh,"counts":[dict(out.counts[0]),dict(out.counts[1])]})
+        except (OSError,ValueError):
+            pass
+    return out
 
 def summary(text, limit=180):
     """Single-line excerpt of a skill description, shown to the agent as data."""
@@ -272,7 +333,8 @@ def active_refs(prompt,guide_names,index=INDEX):
     out=[]
     allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
     explanations={}
-    for stage,row in rank(prompt,obj["records"],guide_names,explanations):
+    records=with_keywords(obj["records"])
+    for stage,row in rank(prompt,records,guide_names,explanations,prepared_features(records)):
         p=Path(row["path"])
         if not NAME.fullmatch(row["name"]) or any(ord(c)<32 for c in str(p)) or p.name!="SKILL.md":continue
         if not p.is_absolute() or not any(p.is_relative_to(root) for root in allowed):continue
@@ -292,15 +354,29 @@ def active_refs(prompt,guide_names,index=INDEX):
 def command(argv):
     p=argparse.ArgumentParser(description=__doc__)
     sub=p.add_subparsers(dest="sub",required=True)
-    sub.add_parser("refresh")
+    r=sub.add_parser("refresh")
+    r.add_argument("--keywords",action="store_true",help="also have the host model write Japanese keywords for new or changed skills")
+    k=sub.add_parser("keywords",help="write Japanese keywords for new or changed skills")
+    for x in (r,k):x.add_argument("--limit",type=int,default=None)
     sub.add_parser("status")
     for verb in ("add-root","remove-root"):
         sub.add_parser(verb).add_argument("path")
     a=p.parse_args(argv)
-    if a.sub=="refresh":result=scan((*DEFAULT,*roots()),INDEX)
+    if a.sub in ("refresh","keywords"):
+        result=scan((*DEFAULT,*roots()),INDEX) if a.sub=="refresh" else {}
+        records=read_json(INDEX,{}).get("records",[])
+        if a.sub=="keywords" or a.keywords:
+            K=runpy.run_path(str(Path(__file__).with_name("keywords.py")))
+            old=read_json(KEYWORDS,{})
+            saved=old.get("records",{}) if isinstance(old,dict) and old.get("version")==1 else {}
+            saved,stats=K["update"](records,saved,limit=a.limit)
+            write_json(KEYWORDS,{"version":1,"records":saved})
+            result.update(stats)
+        prepared_features(with_keywords(records))
     elif a.sub=="status":
         curr=read_json(INDEX,{})
-        result={"indexed":len(curr.get("records",[])), "extra_roots":[str(p) for p in roots()]}
+        kw=read_json(KEYWORDS,{}).get("records",{})
+        result={"indexed":len(curr.get("records",[])),"with_keywords":len(kw),"extra_roots":[str(p) for p in roots()]}
     else:
         saved=roots()
         arg=Path(a.path).expanduser()
