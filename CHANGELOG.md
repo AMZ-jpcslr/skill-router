@@ -1,5 +1,13 @@
 # Release notes
 
+## 未リリース
+
+- Skill Suggestを作り直しました。普段の依頼の傾向から、スキル設定の見直しと、合うスキルがない作業に向く公開スキルを提案します。
+  - 材料はClaude Code・Codexが既に残している依頼履歴とセッション記録で、呼び出したときだけ読み取り専用で読みます。新たな記録は作りません。
+  - 固定の作業分類（12種）をやめ、ルーター本体と同じ照合で、導入済みスキルと公開スキルを比べます。導入済みに近いものがあれば、公開スキルではなく設定の見直しとして伝えます。
+  - 公開スキルの一覧を4つの配布元（anthropics/skills、openai/plugins、obra/superpowers、antigravity-awesome-skills の safe 指定）から作り直し、日本語の検索語を付けました（`tools/build_catalog.py`）。
+  - Codexでも暗黙には呼ばれないようにし（`agents/openai.yaml`）、スキル一覧の文字数枠を使いません。
+
 ## 0.1.0-beta.7（公開候補）
 
 - Claude Codeに対応しました。Codexと同じプラグインを使い、設定と索引も共通です。

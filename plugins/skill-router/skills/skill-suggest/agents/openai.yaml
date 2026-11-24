@@ -1,0 +1,5 @@
+interface:
+  display_name: "Skill Suggest"
+  short_description: "使い方からスキル設定と公開スキルを提案"
+policy:
+  allow_implicit_invocation: false
