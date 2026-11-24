@@ -256,6 +256,10 @@ def soft_matcher(L, rows, trust=None):
     return match
 
 
+def without_keywords(pool):
+    return [r if r["source"] == "local" else {k: v for k, v in r.items() if k != "keywords"} for r in pool]
+
+
 def public_row(r, sources, **extra):
     src = sources.get(r["source"], {})
     return {"skill": r["name"], "kind": r["kind"], **extra, "url": r["url"], "source": r["source"],
@@ -409,9 +413,14 @@ def analyse(days=60, today=None, include_public=True):
     if uncovered:
         pub_rows, sources = catalog(L) if include_public else ([], {})
         pool = [dict(r, source="local") for r in records] + [r for r in pub_rows if r["name"] not in names]
-        match = soft_matcher(L, pool, {k: v.get("trust") for k, v in sources.items()})
+        trust = {k: v.get("trust") for k, v in sources.items()}
+        match = soft_matcher(L, pool, trust)
+        # Installed skills are compared on name and description alone, as are the public
+        # ones: the catalogue's search terms must not let a public skill outrank one the
+        # user already has. They only help find a public skill where nothing is installed.
+        fair = soft_matcher(L, without_keywords(pool), trust)
         for day, text in uncovered:
-            near = match(text, 3)
+            near = fair(text, 3)
             local = [r for r in near if r["source"] == "local"]
             if local:
                 for r in local[:1]:
@@ -455,7 +464,10 @@ def find(description, include_public=True):
     rows, sources = catalog(L) if include_public else ([], {})
     have = {r["name"] for r in records}
     pool = [dict(r, source="local") for r in records] + [r for r in rows if r["name"] not in have]
-    near = soft_matcher(L, pool, {k: v.get("trust") for k, v in sources.items()})(description, 5)
+    trust = {k: v.get("trust") for k, v in sources.items()}
+    near = soft_matcher(L, without_keywords(pool), trust)(description, 5)
+    if not any(r["source"] == "local" for r in near):
+        near = soft_matcher(L, pool, trust)(description, 5)
     known = {x["skill"] for x in local}
     local += [{"skill": r["name"], "path": r["path"], "basis": "description_overlap"}
               for r in near if r["source"] == "local" and r["name"] not in known]
