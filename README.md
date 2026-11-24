@@ -12,7 +12,7 @@ Skill Routerは、依頼に合うスキルの参照先と作業ガイドを自�
 
 **β.7：Claude Code・Codex Desktop（Windows）**
 
-[β.7のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7) · [紹介動画（19秒・MP4）](assets/skill-router-demo-light.mp4)
+[β.7のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7) · [紹介動画（21秒・MP4）](assets/skill-router-demo-light.mp4)
 
 ## 1. 導入する
 
