@@ -320,6 +320,41 @@ def said_keyword(k,part):
     stem=k[:m.start()]
     return len(stem)>=2 and stem in part and m.group(1) in part
 
+# Where a request points (a URL, an absolute path to save to) is not the work it asks for;
+# its words ("github", "users") say nothing about which skill fits.
+REFERENCE=re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://\S+|(?<![\w.])(?:[a-z]:[\\/]|~[\\/]|/(?:users|home|mnt|tmp|var|opt)/)\S*")
+
+def without_operations(text):
+    """The text with its operation phrases ("作成", "直して", "rewrite") taken out."""
+    for key in OPS:text=PATTERNS[key].sub(" ",text)
+    return ACTION_TAIL_ANY.sub(" ",text)
+
+ACTION_TAIL_ANY=re.compile(ACTION_TAIL.pattern.rstrip("$"))
+
+@lru_cache(maxsize=65536)
+def keyword_subject(k):
+    """A keyword's words other than its action: "スライド" of "スライド作成", "es" of "es作成".
+    Empty for a keyword that is an action alone ("書き直し", "作り直し")."""
+    words=[]
+    for word in without_operations(k).split():
+        word=re.sub(r"^[\u3041-\u309f]+|[\u3041-\u309f]+$","",word)
+        if len(word)>=2:words.append(word)
+    return tuple(words)
+
+def subject_said(k,rest,rest_grams):
+    """The request names what the keyword acts on, outside its own operation phrase: a
+    Latin word as a token, a short word whole, a longer one by most of its n-grams."""
+    subject=keyword_subject(k)
+    if not subject:return False
+    for word in subject:
+        for run in re.findall(r"[a-z0-9][a-z0-9&+#.]*",word):
+            if not re.search(r"(?<![a-z0-9])"+re.escape(run)+r"(?![a-z0-9])",rest):return False
+        jp="".join(re.findall(r"[\u3041-\u30ff\u3400-\u9fff]+",word))
+        if not jp or jp in rest:continue
+        grams=features(jp)[1]
+        if len(jp)<4 or not grams or len(grams&rest_grams)/len(grams)<.6:return False
+    return True
+
 def keyword_cover(parts,latin,part,qj,ql):
     """Share of a keyword the request says. Every word of it must be said: a short word
     whole, a longer one by most of its character n-grams ("プロンプトを改善" for
@@ -378,7 +413,10 @@ def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None
     def weight(k):return min(3.5,math.log(1+(size+.5)/(counts[k]+.5)))
     out=list(primary)
     for part in parts:
+        part=REFERENCE.sub(" ",part)
         ql,qj,qc=features(part)
+        bare=without_operations(part)
+        bare_grams=features(bare)[1]
         qscope={k for k,v in SCOPE.items() if v.search(part)}
         targets=qc-OPS
         operations=qc&OPS
@@ -402,7 +440,13 @@ def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None
                 # subject and action apart ("スライドを作成"), or most of its character n-grams
                 # ("プロンプトを改善" for "プロンプト改善"). Only the best keyword counts.
                 # A keyword's English words ("todo 書き直し") must be in the request as well.
+                # A keyword stands for the task only when the request also names what it acts
+                # on, outside the request's own action words: "es" of "es作成" (not
+                # "dockerfileを作成"), "スライド" of "スライド作成". A keyword that is an action
+                # alone counts only as that operation, when the request asks for it ("翻訳").
                 kfit=[(1. if said_keyword(k,part) else keyword_cover(parts,w,part,qj,ql),k) for k,(parts,w) in zip(kw,kj)]
+                kfit=[(c,k) for c,k in kfit if c>=.6 and (subject_said(k,bare,bare_grams) if keyword_subject(k)
+                                                          else features(k)[2]&OPS and features(k)[2]<=operations)]
                 said_kw=[k for c,k in kfit if c>=.6]
                 kbest=max(((c*min(3.5,math.log(1+(size+.5)/(kcounts[k]+.5)))*min(1.,len(k)/4),k) for c,k in kfit if c>=.6),default=(0,None))[0]
                 if operations and not operations&dc and not said_kw:
