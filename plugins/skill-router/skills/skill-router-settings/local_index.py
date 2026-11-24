@@ -271,7 +271,17 @@ def rank(prompt,records,guide_names,explanations=None,prepared=None):
             ("regression-testing",r"回帰テスト|regression test"),
             ("python-testing",r"回帰テスト|regression test"),
             ("javascript-testing",r"回帰テスト|regression test")))
-    results=fixed+OPEN["rank_open"](parts,records,known,explanations=explanations,prepared=prepared,prompt=prompt)
+    # A guide-only stage (debugging, testing) names how to work, not what the work is about.
+    # When the request also names its subject ("SwiftUIのリスト画面が…原因を調べて"), skills
+    # about that subject are retrieved too, and the general one is offered beside them.
+    general={name for name,target,*_ in CAPS if target is None}
+    soft=[x for x in fixed if x[0] in general]
+    opened=OPEN["rank_open"](parts,records,known if not soft else (lambda part:capabilities(part,[])[0]),
+                             explanations=explanations,prepared=prepared,prompt=prompt)
+    if soft and opened:
+        fixed=[x for x in fixed if x not in soft]
+        opened=[("open-shortlist",r) for _,r in opened]+[("open-shortlist",r) for _,r in soft]
+    results=fixed+opened
     # Beside a confident pick, a list of loose matches from the request's other sentences
     # (its output format, what to keep) is noise.
     if any(k!="open-shortlist" for k,_ in results):

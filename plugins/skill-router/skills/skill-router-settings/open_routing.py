@@ -39,9 +39,13 @@ cool perfect hello hi hey good awesome sorry so and but also""".split())
 JP_QUESTION=re.compile(r"(?:の|か|かな|って何|は|いい|どう|どっち|なに|何)[?？]?\s*$|[?？]\s*$")
 JP_ASKS_WORK=re.compile(r"(?:て|で)(?:くれ(?:る|ない|ます)|もらえ(?:る|ない|ます)|いただけ(?:る|ます))か?[?？]?\s*$")
 
+JP_PROHIBIT=re.compile(r"ないで(?:ください|下さい|ほしい|欲しい|おいて)?[?？!！。\s]*$|ないように(?:して(?:ください)?)?[?？!！。\s]*$")
+
 def is_request(part):
     jp=bool(re.search(r"[\u3041-\u30ff\u3400-\u9fff]",part))
     if jp and JP_QUESTION.search(part) and not JP_ASKS_WORK.search(part):return False
+    # "…は入れないで" limits the work; it is not work of its own.
+    if jp and JP_PROHIBIT.search(part):return False
     if REQUEST.search(part):return True
     if JP_REQUEST_END.search(part) and not INFO_ONLY.search(part):return True
     if jp:return False
@@ -287,11 +291,12 @@ def role_picks(parts, records, explanations=None):
     # A request that only mentions a video (a summary of one) is still matched by content.
     covered={i for i,op in video_by_part.items() if op!="video-unspecified"}
     for key,role_text,evidence,limit in active:
+        span=set()
         if not key.startswith("video-"):
             first_start=whole.index(role_text)
             first=whole.count("。",0,first_start)
             last=whole.count("。",0,first_start+len(role_text))
-            covered.update(range(first,last+1))
+            span=set(range(first,last+1))
         ql=features(role_text)[0]
         choices=[]
         for row in records:
@@ -326,6 +331,8 @@ def role_picks(parts, records, explanations=None):
             choices.append((score,row))
         choices.sort(key=lambda item:(-item[0],item[1]["name"],item[1]["path"]))
         if choices and (len(choices)==1 or choices[0][0]>choices[1][0]):
+            # A role that settles on no single skill leaves its clause to general retrieval.
+            covered.update(span)
             picks.append(("open-search",choices[0][1]))
             if explanations is not None:
                 explanations.setdefault(choices[0][1]["path"], {
@@ -346,6 +353,9 @@ def keyword_terms(row):
 REFERENCE=re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://\S+|(?<![\w.])(?:[a-z]:[\\/]|~[\\/]|/(?:users|home|mnt|tmp|var|opt)/)\S*")
 # A file the request names says what format it is, not what the work is: "notes-en.md" -> "md".
 FILE_NAME=re.compile(r"""[^\s"'「」『』()<>、。,]+\.(md|txt|py|tsx?|jsx|json|csv|tsv|xlsx|xls|docx|doc|pptx|pdf|ya?ml|toml|html?|css|java|go|rs|rb|php|sh|ps1|sql|log|png|jpe?g|gif|svg|mp4|mov|mp3|wav)(?![a-z0-9])""")
+
+# The same, written in Latin letters only: the name a skill's text could also use.
+LATIN_FILE=re.compile(r"(?<![a-z0-9_.-])[a-z0-9_][a-z0-9_.-]*\.(?:"+FILE_NAME.pattern.split(".(",1)[1].split(")(?!",1)[0]+r")(?![a-z0-9])")
 
 def strip_references(text):
     return FILE_NAME.sub(" ",REFERENCE.sub(" ",normalize(text)))
@@ -372,13 +382,22 @@ ROLE_WORDS=frozenset("""expert pro patterns pattern best practices practice skil
 developer automation toolkit helper specialist engineer engineering architect official master mastery advanced
 basics fundamentals workflow workflows assistant agent agents builder generator manager tool tools kit""".split())
 WORD=re.compile(r"[a-z][a-z0-9+#]*")
+DOTTED=re.compile(r"(?<![a-z0-9.])([a-z][a-z0-9]*)\.(js|ts)(?![a-z0-9])")
 KATAKANA=re.compile(r"[ァ-ヿー]+")
 JP_WORD_RUN=re.compile(r"[ァ-ヿー]+|[㐀-鿿]+")
+# A message to be sent, posted or replied to through something ("Slackでチームに送る").
+MESSAGE_VERB=re.compile(r"送る|送り|送信|返信|返事|投稿|告知|周知|お知らせ|連絡|知らせ|案内")
+MEDIUM=re.compile(r"(?<![a-z0-9])([a-z][a-z0-9+#]*)\s?(?:で|に)(?![a-z])")
+DESTINATION=re.compile(r"(?<![a-z0-9])([a-z][a-z0-9+#]*)\s?(?:向け|用に|で(?:送|共有|配信|投稿|流|告知|周知)|に(?:送|投稿|載せ|貼|共有|流|返信|返す))")
 
 @lru_cache(maxsize=50000)
 def words(text):
     """Latin content words, inflections folded ("refactoring" -> "refactor")."""
-    return frozenset(canonical(t) for t in WORD.findall(normalize(text)) if len(t)>=2 and t not in EN_STOP)
+    text=normalize(text)
+    out={canonical(t) for t in WORD.findall(text) if len(t)>=2 and t not in EN_STOP}
+    # A library written with its dot ("Three.js", "Node.js") is the word catalogues join ("threejs").
+    out.update(a+b for a,b in DOTTED.findall(text))
+    return frozenset(out)
 
 @lru_cache(maxsize=65536)
 def jp_words(text):
@@ -468,8 +487,14 @@ class Query:
         self.text=whole
         self.compact=compact(whole)
         self.words=words(self.part)
+        p=normalize(self.part)
+        # Where the text goes ("Slack向けに", "LINEで送る") is not what the work is about.
+        dest={canonical(m.group(1)) for m in DESTINATION.finditer(p)}
+        if MESSAGE_VERB.search(p):dest|={canonical(m.group(1)) for m in MEDIUM.finditer(p)}
+        self.destinations=frozenset(dest)&self.words
+        self.words-=self.destinations
         # A named file's format ("xlsx" of "経費.xlsx") is weak context, never a skill's name.
-        self.context_words=(words(self.context)|file_formats(part+" "+context))-self.words
+        self.context_words=(words(self.context)|file_formats(part+" "+context)|self.destinations)-self.words
         self.jp=self.said_jp(whole,gdf)
         self.jp_part=self.said_jp(normalize(self.part),gdf)
         # Japanese words read in English through the catalogue's own vocabulary.
@@ -485,6 +510,11 @@ class Query:
         self.operations=features(self.part)[2]&OPS
         self.scope={k for k,v in SCOPE.items() if v.search(whole)}
         self.runs=frozenset(r for r in KATAKANA.findall(whole) if len(r)>=3)
+        # A file named whole ("CLAUDE.md", "docker-compose.yml") that a skill's text also names
+        # identifies it; a file of the user's own ("経費.xlsx") is named by no skill.
+        self.files=frozenset(m.group(0) for m in LATIN_FILE.finditer(REFERENCE.sub(" ",normalize(part)))
+                             if len(m.group(0))>=6)
+        self.file_df={}
 
     @staticmethod
     def said_jp(text,vocab):
@@ -552,6 +582,11 @@ def score_skill(q,entry,wdf,gdf,size,row):
         evidence.add("concept:"+key)
         if key in TASKS:strong=True
     score+=.8*len(q.operations&dc)
+    for f in q.files:
+        # Only when the request works on it: "README.mdを開いて見せて" asks for no skill.
+        if q.operations and q.file_df.get(f) and f in named_files(row):
+            score+=1.6*idf(f,q.file_df)
+            evidence.add("file:"+f);strong=True
     # A named task the candidate never mentions; a specialisation the request did not ask for.
     if q.targets&TASKS and not hit&TASKS:score-=3.
     score-=2.5*len((nc&TASKS)-q.concepts)
@@ -576,10 +611,17 @@ SHORTLIST=5
 # and the agent, which reads the request, chooses among them by their descriptions.
 LEAD=.25
 
+def named_files(row):
+    text=normalize(row["name"]+" "+row.get("description","")+" "+" ".join(map(str,row.get("keywords") or ())))
+    return {m.group(0) for m in LATIN_FILE.finditer(text)}
+
 def rank_general(q,catalog,counts,size=None):
     """[(score,row,alone)]: one clear candidate, or a shortlist of plausible ones."""
     wdf,gdf,_=counts
     size=size or len(catalog)
+    if q.files:
+        from collections import Counter
+        q.file_df=Counter(f for row,_ in catalog for f in named_files(row) & q.files)
     pool=[]
     for row,entry in catalog:
         s,ev,strong=score_skill(q,entry,wdf,gdf,size,row)
@@ -640,7 +682,8 @@ def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None
         q=Query(part,context,counts)
         if full is None:
             # Only skills sharing a word with the request can score.
-            terms=q.words|q.context_words|set(q.translated)|q.jp|q.runs|{"concept:"+t for t in q.targets}
+            terms=q.words|q.context_words|set(q.translated)|q.jp|q.runs|{"concept:"+t for t in q.targets}|{
+                w for f in q.files for w in words(f.rsplit(".",1)[0])}
             hits=sorted({i for t in terms for i in post.get(t,())})
             catalog=[(records[i],prepared[records[i]["path"]]) for i in hits]
         else:
