@@ -79,8 +79,25 @@ class IndexCache(unittest.TestCase):
     def test_failed_batch_is_reported(self):
         def broken(text):
             raise RuntimeError("no model")
-        saved, stats = self.K["update"](ROWS[:3], {}, runner=broken, workers=1)
-        self.assertEqual((saved, stats["keywords_failed"], stats["keywords_missing"]), ({}, 3, 3))
+        # A first batch that fails stops the run loudly instead of failing every batch.
+        with self.assertRaises(self.K["Unavailable"]):
+            self.K["update"](ROWS[:3], {}, runner=broken, workers=1)
+        calls = []
+        def flaky(text):
+            calls.append(text)
+            if len(calls) > 1:
+                raise RuntimeError("later batch")
+            items = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
+            return {"skills": [{"id": x["id"], "keywords": ["ok"]} for x in items]}
+        saved, stats = self.K["update"](ROWS[:3], {}, runner=flaky, workers=1, batch=1)
+        self.assertEqual((len(saved), stats["keywords_failed"], stats["keywords_missing"]), (1, 2, 2))
+
+    def test_keyword_needs_every_word(self):
+        # "チーム 連絡" is not said by "Memoチーム" alone.
+        O = self.L["OPEN"]
+        parts = tuple((p, O["features"](p)[1]) for p in "チーム 連絡".split())
+        self.assertEqual(O["keyword_cover"](parts, frozenset(), "memoチームの今週の報告を書いて", O["features"]("memoチームの今週の報告を書いて")[1], frozenset()), 0.)
+        self.assertEqual(O["keyword_cover"](parts, frozenset(), "チームへの連絡を書いて", O["features"]("チームへの連絡を書いて")[1], frozenset()), 1.)
 
 
 if __name__ == "__main__":

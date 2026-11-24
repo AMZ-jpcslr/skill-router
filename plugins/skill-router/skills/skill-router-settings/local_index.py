@@ -378,7 +378,13 @@ def command(argv):
             K=runpy.run_path(str(Path(__file__).with_name("keywords.py")))
             old=read_json(KEYWORDS,{})
             saved=old.get("records",{}) if isinstance(old,dict) and old.get("version")==1 else {}
-            saved,stats=K["update"](records,saved,limit=a.limit)
+            try:
+                saved,stats=K["update"](records,saved,limit=a.limit)
+            except K["Unavailable"] as err:
+                # Say so plainly; the index itself is still refreshed.
+                result["keywords_error"]=str(err)
+                print(json.dumps(result,ensure_ascii=True))
+                return 2
             write_json(KEYWORDS,{"version":1,"records":saved})
             result.update(stats)
         prepared_features(with_keywords(records))

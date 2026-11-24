@@ -320,6 +320,19 @@ def said_keyword(k,part):
     stem=k[:m.start()]
     return len(stem)>=2 and stem in part and m.group(1) in part
 
+def keyword_cover(parts,latin,part,qj,ql):
+    """Share of a keyword the request says. Every word of it must be said: a short word
+    whole, a longer one by most of its character n-grams ("プロンプトを改善" for
+    "プロンプト改善"), an English word as a token. "チーム 連絡" needs both words."""
+    if not parts or not latin<=ql:
+        return 0.
+    cover=1.
+    for p,grams in parts:
+        if p in part:continue
+        if len(p)<4 or not grams:return 0.
+        cover=min(cover,len(grams&qj)/len(grams))
+    return cover
+
 def prepare(row):
     """Everything rank_open needs from one skill row; cacheable per row (see local_index)."""
     n,d=row["name"],row["description"]
@@ -331,15 +344,16 @@ def prepare(row):
     return (features(n)[0],features(n)[2],meta,
             frozenset(k for k,v in SCOPE.items() if v.search(n+" "+positive[:160])),
             tuple(k for k in keywords if JP.search(k)),
-            tuple((features(k)[1],features(k)[0]) for k in keywords if JP.search(k)))
+            tuple((tuple((p,features(p)[1]) for p in k.split() if JP.search(p)),features(k)[0])
+                  for k in keywords if JP.search(k)))
 
 def pack(entry):
     nwords,nconcepts,meta,scope,kw,kj=entry
-    return [sorted(nwords),sorted(nconcepts),[sorted(x) for x in meta],sorted(scope),list(kw),[[sorted(g),sorted(w)] for g,w in kj]]
+    return [sorted(nwords),sorted(nconcepts),[sorted(x) for x in meta],sorted(scope),list(kw),[[[[p,sorted(g)] for p,g in parts],sorted(w)] for parts,w in kj]]
 
 def unpack(raw):
     nwords,nconcepts,meta,scope,kw,kj=raw
-    return (frozenset(nwords),frozenset(nconcepts),tuple(frozenset(x) for x in meta),frozenset(scope),tuple(kw),tuple((frozenset(g),frozenset(w)) for g,w in kj))
+    return (frozenset(nwords),frozenset(nconcepts),tuple(frozenset(x) for x in meta),frozenset(scope),tuple(kw),tuple((tuple((p,frozenset(g)) for p,g in parts),frozenset(w)) for parts,w in kj))
 
 def catalog_counts(entries):
     counts=Counter()
@@ -388,7 +402,7 @@ def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None
                 # subject and action apart ("スライドを作成"), or most of its character n-grams
                 # ("プロンプトを改善" for "プロンプト改善"). Only the best keyword counts.
                 # A keyword's English words ("todo 書き直し") must be in the request as well.
-                kfit=[(1. if said_keyword(k,part) else (len(g&qj)/len(g) if g and w<=ql else 0.),k) for k,(g,w) in zip(kw,kj)]
+                kfit=[(1. if said_keyword(k,part) else keyword_cover(parts,w,part,qj,ql),k) for k,(parts,w) in zip(kw,kj)]
                 said_kw=[k for c,k in kfit if c>=.6]
                 kbest=max(((c*min(3.5,math.log(1+(size+.5)/(kcounts[k]+.5)))*min(1.,len(k)/4),k) for c,k in kfit if c>=.6),default=(0,None))[0]
                 if operations and not operations&dc and not said_kw:
