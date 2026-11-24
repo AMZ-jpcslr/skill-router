@@ -61,7 +61,7 @@ class DevTaskRouting(unittest.TestCase):
             ("Rewrite launch-post.md so it no longer sounds AI-generated.", {"avoid-ai-writing"}),
             # A near tie goes to the skill whose name carries no unrequested words.
             ("このNode.jsアプリのDockerfileを作成して。", {"docker-expert"}),
-            ("このフォーム画面のアクセシビリティを確認して、問題を直して。", {"fixing-accessibility"}),
+            ("Check this form for accessibility issues and fix them.", {"fixing-accessibility"}),
             ("weekly-notes.txt から、Memoチームの今週の3Pアップデートを書いて。", {"internal-comms"}),
             ("Write this week's 3P update for the Memo team from weekly-notes.txt.", {"internal-comms"}),
             ("launch-post-en.md のAIっぽい英語を自然に書き直して。", {"avoid-ai-writing"}),

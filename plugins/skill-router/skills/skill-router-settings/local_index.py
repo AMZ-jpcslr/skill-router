@@ -268,6 +268,8 @@ def rank(prompt,records,guide_names,explanations=None,prepared=None):
     seen=set()
     return [(k,r) for k,r in results if r["path"] not in seen and not seen.add(r["path"])]
 
+EDIT_OPS=frozenset({"edit","proofread","translate","ai-writing"})
+
 def with_keywords(records,path=None):
     """Attach index-time keywords to rows whose SKILL.md has not changed since."""
     obj=read_json(path or KEYWORDS,{})
@@ -333,6 +335,11 @@ def active_refs(prompt,guide_names,index=INDEX):
     out=[]
     allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
     explanations={}
+    # A request to edit existing text is a weak fit for a skill that only creates new
+    # material; such candidates are named, not handed with a read instruction.
+    request=" ".join(OPEN["work_clauses"](prompt))
+    asked=OPEN["features"](request)[2]
+    editing=bool(asked&EDIT_OPS or JP_EDIT.search(request)) and "create" not in asked
     records=with_keywords(obj["records"])
     for stage,row in rank(prompt,records,guide_names,explanations,prepared_features(records)):
         p=Path(row["path"])
@@ -345,7 +352,9 @@ def active_refs(prompt,guide_names,index=INDEX):
         except (OSError,RuntimeError):continue
         if p!=resolved or not any(resolved.is_relative_to(root) for root in allowed):continue
         if row["stamp"]!=[now.st_mtime_ns,now.st_size,now.st_ino]:continue
-        out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),
+        offered=OPEN["features"](row["name"]+" "+row.get("description",""))[2]
+        fit="name_only" if editing and "create" in offered and not offered&EDIT_OPS else "read"
+        out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),"fit":fit,
                     "summary":summary(row.get("description","")),
                     "selection_reason":(explanations.get(row["path"]) if stage=="open-search" else None)
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
