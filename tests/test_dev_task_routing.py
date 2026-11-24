@@ -27,6 +27,10 @@ ROWS = [
     row("humanize-chinese", "Detect and rewrite AI-like Chinese text; make Chinese text sound more natural."),
     row("lookdev", "Human-in-the-loop web studio to tune AI-generated output by eye with an inline edit studio."),
     row("draft-career-es", "エントリーシートの志望動機や自己PRを作成・添削する。"),
+    row("cv-generator", "Generator for CVs and resumes from a profile."),
+    row("docker-expert", "Docker containerization expert: create Dockerfiles, images and compose files."),
+    row("odoo-docker-deployment", "Create a Docker and docker-compose setup for Odoo with PostgreSQL."),
+    row("fixing-accessibility", "Audit and fix HTML accessibility issues including ARIA labels and form errors."),
 ]
 # Unrelated filler gives the term weights a realistic catalogue size.
 TOPICS = ("kubernetes", "terraform", "spreadsheet", "calendar", "pdf", "slides", "audio", "maps", "invoice", "sql")
@@ -53,6 +57,11 @@ class DevTaskRouting(unittest.TestCase):
             ("Proofread notes-en.md. Fix grammar and spelling only. Do not edit the file.", {"professional-proofreader"}),
             ("Summarize notes-en.md in three bullet points. Do not edit the file.", set()),
             ("123 + 456 はいくつ？", set()),
+            # "generated" is not "generator"; the AI-writing task wins.
+            ("Rewrite launch-post.md so it no longer sounds AI-generated.", {"avoid-ai-writing"}),
+            # A near tie goes to the skill whose name carries no unrequested words.
+            ("このNode.jsアプリのDockerfileを作成して。", {"docker-expert"}),
+            ("このフォーム画面のアクセシビリティを確認して、問題を直して。", {"fixing-accessibility"}),
             ("weekly-notes.txt から、Memoチームの今週の3Pアップデートを書いて。", {"internal-comms"}),
             ("Write this week's 3P update for the Memo team from weekly-notes.txt.", {"internal-comms"}),
             ("launch-post-en.md のAIっぽい英語を自然に書き直して。", {"avoid-ai-writing"}),

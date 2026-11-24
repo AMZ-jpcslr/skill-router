@@ -119,11 +119,11 @@ ALIASES={
  "raster": r"png|jpeg|ビットマップ|\braster\b|\bbitmaps?\b",
  "image": r"画像|イラスト|ビットマップ|png|jpeg|\b(?:images?|imagegen|illustrations?|bitmaps?|raster)\b",
  "animation": r"アニメーション|(?<!ロ)モーション|\banimat(?:ion|e|ed)\b",
- "create": r"制作|生成|作成|作って|作り直|作る|書き出|(?<!に)書いて|\b(?:generat\w+|creat\w+|render\w+|produc\w+|writ(?:e|es|ing))\b",
+ "create": r"制作|生成|作成|作って|作り直|作る|書き出|(?:図|表|一覧|箇条書き)に(?:して|する)|(?<!に)書いて|\b(?:generat\w+|creat\w+|render\w+|produc\w+|writ(?:e|es|ing))\b",
  "extract": r"抽出|切り出|\bextract\w*\b",
  "frames": r"フレーム|コマ(?:を|の)|\b(?:key ?frames?|frames?)\b",
  "ocr": r"文字認識|\bocr\b|\boptical character recognition\b",
- "edit": r"編集|修正|直して|\b(?:edit\w*|rewrit\w*)\b",
+ "edit": r"編集|修正|直して|直す|改善|リファクタ|\b(?:edit\w*|rewrit\w*|fix(?:es|ed|ing)?|refactor\w*|improv\w+)\b",
  "convert": r"変換|\bconvert\w*\b",
  "audio": r"音声|録音|\b(?:audio|recordings?)\b",
  "transcribe": r"文字起こし|書き起こ|\b(?:transcri\w+|speech.to.text)\b",
@@ -131,7 +131,7 @@ ALIASES={
  "academic": r"論文|\b(?:research|papers?|academic)\b",
  "organize": r"整理|管理|\b(?:manag\w+|organiz\w+)\b",
  "schedule": r"カレンダー|予定|\b(?:calendars?|schedule\w*|events?)\b",
- "check": r"確認|検証|\b(?:check\w*|verif\w+|test\w*)\b",
+ "check": r"確認|検証|監査|\b(?:check\w*|verif\w+|test\w*|audit\w*)\b",
  "translate": r"翻訳|訳して|\btranslat\w+\b",
  "location": r"地図|位置情報|\b(?:map|maps|geospatial)\b",
  # Developer writing tasks: Japanese loanwords must meet the English skill descriptions.
@@ -140,7 +140,7 @@ ALIASES={
  "commit": r"コミット|(?<![a-z0-9])commit(?:s|ted|ting)?(?![a-z0-9])",
  "changelog": r"チェンジログ|リリースノート|(?<![a-z0-9])(?:changelogs?|release notes)(?![a-z0-9])",
  "pull-request": r"プルリク(?:エスト)?|(?<![a-z0-9])pull requests?(?![a-z0-9])|(?<![a-z0-9])(?<!自己)prs?(?![a-z0-9])",
- "code-review": r"コードレビュー|(?<![a-z0-9])(?:code[- ]?review\w*|review(?:ing)? (?:the |this |your )?code)(?![a-z0-9])",
+ "code-review": r"コードレビュー|(?<![a-z0-9])(?:code[- ]?review\w*|review(?:ing)? (?:the |this |your )?code|review comments?)(?![a-z0-9])",
  # Internal status reports and AI-sounding prose: named the same way in requests and skills.
  "status-update": r"(?<![a-z0-9])3p ?(?:アップデート|updates?)|週次(?:報告|レポート|アップデート)|進捗報告|ステータス(?:報告|レポート)|(?<![a-z0-9])(?:status (?:reports?|updates?)|leadership updates?|weekly updates?)(?![a-z0-9])",
  "ai-writing": r"(?<![a-z0-9])ai(?:っぽ|臭|らし)|人間が書いた(?:ような|みたい|よう)|(?<![a-z0-9])(?:ai[- ](?:writing(?: patterns?)?|isms?|slop|tells?)|sounds? (?:like )?(?:an? )?ai(?:[- ](?:generated|written))?|(?:reads?|sounds?) like (?:a )?human|humans? wrote|humaniz\w*)(?![a-z0-9])"
@@ -160,10 +160,48 @@ GENERIC={"using","with","from","into","task","works","use","skill","please","whe
 PATTERNS={k:re.compile(v) for k,v in ALIASES.items()}
 LATIN=re.compile(r"[a-z][a-z0-9+#]{2,}")
 JP=re.compile(r"[\u3041-\u30ff\u3400-\u9fff]{2,}")
+# Japanese technical and writing terms mapped to the English words skill descriptions use.
+# This is shared vocabulary, not a list of skills.
+GLOSS=[(re.compile(rx),words.split()) for rx,words in (
+    (r"リファクタ", "refactor refactoring"),
+    (r"セキュリティ|脆弱性", "security vulnerability"),
+    (r"問題がないか", "review audit"),
+    (r"パフォーマンス|高速化|再レンダリング", "performance"),
+    (r"コンポーネント", "component components"),
+    (r"マニフェスト", "manifest manifests"),
+    (r"エンドポイント", "endpoint endpoints"),
+    (r"アクセシビリティ", "accessibility a11y"),
+    (r"実装計画|計画を立て|タスク(?:に|へ)?分解", "plan planning breakdown"),
+    (r"型エラー|型定義|型を", "types"),
+    (r"メール", "email"),
+    (r"お詫び|謝罪", "apology"),
+    (r"ポストモーテム", "postmortem postmortems"),
+    (r"障害", "incident"),
+    (r"(?:の|な)図(?:に|を|で)|ダイアグラム|構成図", "diagram diagrams"),
+    (r"デザイン", "design"),
+    (r"ランディングページ", "landing page"),
+    (r"プロンプト", "prompt prompts"),
+    (r"スキル", "skill skills"),
+    (r"ブログ", "blog"),
+)]
+
+def canonical(token):
+    """Fold plain inflections: refactoring/refactor, dockerfile/docker, reviews/review.
+    Derived nouns stay distinct (generated is not generator)."""
+    if token.endswith("ies") and len(token)>=7:return token[:-3]+"y"
+    for suffix in ("file","ings","ing","ed","es","s"):
+        if token.endswith(suffix) and len(token)-len(suffix)>=4 and not token.endswith("ss"):
+            stem=token[:-len(suffix)]
+            if suffix=="es" and not stem.endswith(("ch","sh","x","z")):stem=token[:-1]
+            # dockerfiles -> dockerfile -> docker
+            return canonical(stem) if stem.endswith("file") else stem
+    return token
+
 @lru_cache(maxsize=25000)
 def features(value):
     text=normalize(value)
-    latin=set(LATIN.findall(text))-GENERIC
+    latin={canonical(t) for t in set(LATIN.findall(text))-GENERIC}
+    latin.update(canonical(w) for rx,words in GLOSS if rx.search(text) for w in words if w not in GENERIC)
     jp=set()
     for run in JP.findall(text):
         for n in (2,3):
@@ -327,7 +365,10 @@ def rank_open(parts, records, known_for, top=8, explanations=None):
                 # or have concrete repository/tool vocabulary / multiple rare words.
                 if operations and not operations&dc:
                     if len(name)<2:continue
-                if not ((hit and (sem&OPS or name or hit&TASKS)) or len(name)>=2 or len(exact)>=3 or len(jp)>=5):
+                # One rare word shared by the request and the skill's name (Docker, Mermaid,
+                # Kubernetes) is concrete enough when the request asks for work.
+                rare_name=bool(operations) and any(weight(t)>=2.6 for t in name)
+                if not ((hit and (sem&OPS or name or hit&TASKS)) or len(name)>=2 or len(exact)>=3 or len(jp)>=5 or rare_name):
                     continue
                 score=(sum(weight(t) for t in exact)*1.1
                        +sum(weight(t) for t in name)*1.1
@@ -358,12 +399,21 @@ def rank_open(parts, records, known_for, top=8, explanations=None):
                     if said(normalize(part))&said(normalize(row["name"]+" "+row["description"])):
                         score+=3
                 family=nconcepts&hit&TASKS
-                if family:
-                    rest=normalize(row["name"])
-                    for key in family:rest=PATTERNS[key].sub(" ",rest)
-                    score-=.9*len(set(LATIN.findall(rest))-ql-GENERIC)
-                pool.append((score,row))
+                rest=normalize(row["name"])
+                for key in family:rest=PATTERNS[key].sub(" ",rest)
+                unasked=len({canonical(w) for w in LATIN.findall(rest)}-ql-GENERIC)
+                if family:score-=.9*unasked
+                pool.append((score,row,unasked))
             pool.sort(key=lambda item:(-item[0],item[1]["name"],item[1]["path"]))
+            # Near-tied candidates whose names carry words the request never mentions
+            # (odoo-docker-deployment, react-flow-node-ts) yield to the plain one (docker-expert).
+            near=[item for item in pool if pool and pool[0][0]-item[0]<.8]
+            if len(near)>1:
+                least=min(item[2] for item in near)
+                plain=[item for item in near if item[2]==least]
+                if len(plain)==1 and all(item[2]>=least+1 for item in near if item is not plain[0]):
+                    pool=[plain[0]]+[item for item in pool if item[0]<pool[0][0]-.8]
+            pool=[(score,row) for score,row,*_ in pool]
             shortlist=pool[:top]
             tied=[]
             if shortlist and shortlist[0][0]>=5.25 and len(shortlist)>1 and shortlist[0][0]-shortlist[1][0]<.8:

@@ -207,6 +207,7 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         decision_protocol = (
             "\n\n【候補の扱い】"
             "内蔵ガイドは上の短い指針として使う。候補の実行や依頼外の操作を強制しない。"
+            "スキルの型（実績・社会的証明・課題の描写など）を埋めるために、依頼や資料にない事実・数字・経験・理由を作らない。材料がない要素は省く。"
         )
         if show_summary:
             decision_protocol += ("最終返答の末尾に、各候補の採否と理由、実際に読んだファイルを1行ずつ書く。"
