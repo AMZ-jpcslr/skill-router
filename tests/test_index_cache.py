@@ -39,7 +39,9 @@ class IndexCache(unittest.TestCase):
         first = self.L["prepared_features"](ROWS, path)
         self.assertTrue(path.exists())
         second = self.L["prepared_features"](ROWS, path)
-        self.assertEqual(dict(first), dict(second))
+        # Rows are unpacked from the cache on first use; every one matches the fresh build.
+        self.assertEqual({r["path"]: first[r["path"]] for r in ROWS}, {r["path"]: second[r["path"]] for r in ROWS})
+        self.assertEqual(first.post, second.post)
         self.assertEqual(first.counts, second.counts)
         for prompt in ("このNode.jsアプリのDockerfileを作成して。", "Write a Dockerfile for this app."):
             self.assertEqual(self.names(prompt, ROWS, second), self.names(prompt, ROWS))
@@ -97,12 +99,14 @@ class IndexCache(unittest.TestCase):
         b = dict(a, path="/other/dup-skill/SKILL.md", stamp=[501, 1, 501])
         self.assertEqual(len(self.L["one_per_name"]([a, b] + ROWS)), len(ROWS) + 1)
 
-    def test_keyword_needs_every_word(self):
-        # "チーム 連絡" is not said by "Memoチーム" alone.
+    def test_japanese_words_without_a_dictionary(self):
         O = self.L["OPEN"]
-        parts = tuple((p, O["features"](p)[1]) for p in "チーム 連絡".split())
-        self.assertEqual(O["keyword_cover"](parts, frozenset(), "memoチームの今週の報告を書いて", O["features"]("memoチームの今週の報告を書いて")[1], frozenset()), 0.)
-        self.assertEqual(O["keyword_cover"](parts, frozenset(), "チームへの連絡を書いて", O["features"]("チームへの連絡を書いて")[1], frozenset()), 1.)
+        self.assertEqual(O["jp_words"]("新卒採用情報"), frozenset({"新卒", "採用", "情報"}))
+        self.assertEqual(O["jp_words"]("テストを先に書く"), frozenset({"テスト"}))
+        # A katakana word is said whole, or joined to another catalogue word.
+        vocab = {"ログ", "セキュリティ", "チェック"}
+        self.assertEqual(O["Query"].said_jp("ログイン画面", vocab), frozenset())
+        self.assertEqual(O["Query"].said_jp("セキュリティチェックして", vocab), frozenset({"セキュリティ", "チェック"}))
 
     def with_keywords(self, keywords):
         return [dict(r, keywords=keywords.get(r["name"], [])) for r in ROWS]
@@ -114,13 +118,6 @@ class IndexCache(unittest.TestCase):
         # An action alone does not name the task either.
         self.assertNotIn("apology-letters", self.names("この説明文を書き直して。", rows))
         self.assertEqual(self.names("ESを作成して。", rows), ["apology-letters"])
-
-    def test_keyword_subject(self):
-        subject = self.L["OPEN"]["keyword_subject"]
-        self.assertEqual(subject("スライド作成"), ("スライド",))
-        self.assertEqual(subject("es作成"), ("es",))
-        # An action alone counts only as that operation ("翻訳" for a translation request).
-        self.assertEqual(subject("翻訳"), ())
 
     def test_urls_and_save_paths_do_not_pick_a_skill(self):
         rows = ROWS + [row("github-docs-sync", "Sync docs to a GitHub repository over https, for com domains.", 500)]

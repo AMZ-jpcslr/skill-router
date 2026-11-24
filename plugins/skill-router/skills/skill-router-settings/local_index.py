@@ -10,6 +10,7 @@ import runpy
 import stat
 import tempfile
 import unicodedata
+import zlib
 
 HOME=Path.home()
 STATE=Path(os.environ.get("SKILL_ROUTER_STATE_DIR") or HOME/".skill-router-beta")
@@ -22,7 +23,8 @@ MAX_SKILLS=12_000
 MAX_DIRS=20_000
 NAME=re.compile(r"[a-z0-9][a-z0-9-]{0,79}\Z")
 DEFAULT=(HOME/".agents/skills", HOME/".codex/skills", HOME/".claude/skills")
-FORMAT=1
+# 2: descriptions folded onto indented lines are read whole.
+FORMAT=2
 OPEN=runpy.run_path(str(Path(__file__).with_name("open_routing.py")))
 # Cached features are valid only for the exact routing code that produced them.
 FEATURE_KEY=hashlib.sha256(Path(__file__).with_name("open_routing.py").read_bytes()).hexdigest()[:16]
@@ -109,7 +111,7 @@ def metadata(path):
         if f.readline(32).rstrip(b"\r\n").removeprefix(b"\xef\xbb\xbf")!=b"---": return None
         budget=8192
         fields={}
-        block=None
+        block=plain=None
         chunks=[]
         while budget>0:
             line=f.readline(budget)
@@ -119,7 +121,11 @@ def metadata(path):
             if block is not None and (line.startswith((b" ",b"\t")) or not line.strip()):
                 chunks.append(line.decode("utf8").strip())
                 continue
-            block=None
+            if plain is not None and line.startswith((b" ",b"\t")) and line.strip():
+                # A plain or quoted YAML scalar folded onto indented lines continues there.
+                fields[plain]+=" "+line.decode("utf-8").strip()
+                continue
+            block=plain=None
             key,sep,value=line.partition(b":")
             if sep and key in (b"name",b"description"):
                 if key in fields:return None
@@ -128,11 +134,12 @@ def metadata(path):
                     block=key
                     fields[key]=""
                 else:
-                    fields[key]=field.strip("'\\\"")
+                    fields[key]=field
+                    plain=key
         else:
             return None
-    n=fields.get(b"name","")
-    d=fields.get(b"description","") or " ".join(x for x in chunks if x)
+    n=fields.get(b"name","").strip("'\\\"")
+    d=fields.get(b"description","").strip("'\\\"") or " ".join(x for x in chunks if x)
     if not NAME.fullmatch(n) or not d:
         return None
     return n,d[:640]
@@ -264,7 +271,11 @@ def rank(prompt,records,guide_names,explanations=None,prepared=None):
             ("regression-testing",r"回帰テスト|regression test"),
             ("python-testing",r"回帰テスト|regression test"),
             ("javascript-testing",r"回帰テスト|regression test")))
-    results=fixed+OPEN["rank_open"](parts,records,known,explanations=explanations,prepared=prepared)
+    results=fixed+OPEN["rank_open"](parts,records,known,explanations=explanations,prepared=prepared,prompt=prompt)
+    # Beside a confident pick, a list of loose matches from the request's other sentences
+    # (its output format, what to keep) is noise.
+    if any(k!="open-shortlist" for k,_ in results):
+        results=[(k,r) for k,r in results if k!="open-shortlist"]
     seen=set()
     return [(k,r) for k,r in results if r["path"] not in seen and not seen.add(r["path"])]
 
@@ -273,11 +284,11 @@ EDIT_OPS=frozenset({"edit","proofread","translate","ai-writing"})
 def one_per_name(records):
     """The same skill installed in two places (~/.codex/skills and ~/.claude/skills) is one
     candidate, not a tie that hides both. Prefer the copy Claude Code loads itself."""
-    native=(HOME/".claude"/"skills").as_posix().casefold()
+    native=(HOME/".claude"/"skills").as_posix().casefold().rstrip("/")+"/"
     best={}
     for row in records:
         key=row["name"]
-        here=Path(row["path"]).as_posix().casefold().startswith(native)
+        here=row["path"].replace("\\","/").casefold().startswith(native)
         if key not in best or (here and not best[key][0]):
             best[key]=(here,row)
     keep={id(r) for _,r in best.values()}
@@ -296,43 +307,66 @@ def with_keywords(records,path=None):
     return out
 
 class Prepared(dict):
-    """{path: features}, plus catalogue term counts when they match these records."""
+    """{path: features}, filled on first use from the cache's packed rows, plus catalogue term
+    counts and postings (term -> positions in `order`) when they match these records."""
     counts=None
+    post=None
+    order=None
+    def __init__(self,raw=None):
+        super().__init__()
+        self.raw=raw or {}
+    def __missing__(self,path):
+        packed=self.raw.get(path)
+        if packed is None:raise KeyError(path)
+        entry=OPEN["unpack"](json.loads(packed))
+        self[path]=entry
+        return entry
+    def get(self,path,default=None):
+        try:return self[path]
+        except KeyError:return default
 
 def prepared_features(records,path=None,save=True):
-    """Per-row routing features, cached on disk so a hook does not re-tokenize every skill."""
+    """Per-row routing features, cached on disk so a hook neither re-tokenizes every skill nor
+    unpacks rows the request shares no word with."""
     path=path or FEATURES
     try:
         obj=read_json(path,{})
     except (ValueError,json.JSONDecodeError):
         obj={}
-    cache=obj.get("records",{}) if isinstance(obj,dict) and obj.get("key")==FEATURE_KEY else {}
+    if not isinstance(obj,dict) or obj.get("key")!=FEATURE_KEY:obj={}
+    cache=obj.get("records",{})
+    # A row is current while its SKILL.md and its keywords are unchanged.
+    sigs={r["path"]:[r.get("stamp"),zlib.crc32("\n".join(r.get("keywords") or ()).encode("utf-8"))] for r in records}
+    order=[r["path"] for r in records]
+    try:
+        if (obj.get("order")==order and all(cache[p][0]==sigs[p] for p in order)
+                and isinstance(obj.get("post"),dict) and isinstance(obj.get("counts"),list)):
+            out=Prepared({p:cache[p][1] for p in order})
+            c=obj["counts"]
+            out.counts=(Counter(c[0]),Counter(c[1]),{j:[tuple(x) for x in v] for j,v in c[2].items()})
+            out.post=obj["post"]; out.order=order
+            return out
+    except (KeyError,TypeError,ValueError,IndexError,AttributeError):
+        pass
     out=Prepared()
     fresh={}
-    changed=False
     for row in records:
-        sig=[row.get("stamp"),row.get("keywords") or []]
         hit=cache.get(row["path"])
+        entry=None
         try:
-            if hit and hit[0]==sig:
-                out[row["path"]]=OPEN["unpack"](hit[1]); fresh[row["path"]]=hit; continue
+            if hit and hit[0]==sigs[row["path"]]:entry=OPEN["unpack"](json.loads(hit[1]))
         except (TypeError,ValueError):
-            pass
-        entry=OPEN["prepare"](row)
+            entry=None
+        if entry is None:entry=OPEN["prepare"](row)
         out[row["path"]]=entry
-        fresh[row["path"]]=[sig,OPEN["pack"](entry)]
-        changed=True
-    stale=changed or len(fresh)!=len(cache)
-    saved=obj.get("counts") if isinstance(obj,dict) and not stale else None
-    try:
-        out.counts=(Counter(saved[0]),Counter(saved[1])) if saved else None
-    except (TypeError,ValueError,IndexError):
-        out.counts=None
-    if out.counts is None:
-        out.counts=OPEN["catalog_counts"](out[r["path"]] for r in records)
-    if save and stale:
+        fresh[row["path"]]=[sigs[row["path"]],json.dumps(OPEN["pack"](entry),ensure_ascii=False,separators=(",",":"))]
+    out.counts=OPEN["catalog_counts"](out[p] for p in order)
+    out.post=OPEN["postings"]([out[p] for p in order],out.counts)
+    out.order=order
+    if save:
         try:
-            write_json(path,{"key":FEATURE_KEY,"records":fresh,"counts":[dict(out.counts[0]),dict(out.counts[1])]})
+            write_json(path,{"key":FEATURE_KEY,"order":order,"records":fresh,"post":out.post,
+                             "counts":[dict(out.counts[0]),dict(out.counts[1]),out.counts[2]]})
         except (OSError,ValueError):
             pass
     return out
@@ -344,7 +378,8 @@ def summary(text, limit=180):
 
 def active_refs(prompt,guide_names,index=INDEX):
     obj=read_json(index,{})
-    if not isinstance(obj,dict) or obj.get("version")!=FORMAT:return []
+    # An index from the previous format still routes until the next refresh rereads it.
+    if not isinstance(obj,dict) or obj.get("version") not in (1,FORMAT):return []
     out=[]
     allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
     explanations={}
@@ -366,10 +401,10 @@ def active_refs(prompt,guide_names,index=INDEX):
         if p!=resolved or not any(resolved.is_relative_to(root) for root in allowed):continue
         if row["stamp"]!=[now.st_mtime_ns,now.st_size,now.st_ino]:continue
         offered=OPEN["features"](row["name"]+" "+row.get("description",""))[2]
-        fit="name_only" if editing and "create" in offered and not offered&EDIT_OPS else "read"
+        fit="name_only" if editing and "create" in offered and not offered&EDIT_OPS else "choose" if stage=="open-shortlist" else "read"
         out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),"fit":fit,
                     "summary":summary(row.get("description","")),
-                    "selection_reason":(explanations.get(row["path"]) if stage=="open-search" else None)
+                    "selection_reason":(explanations.get(row["path"]) if stage.startswith("open-") else None)
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
     return out[:8]
 

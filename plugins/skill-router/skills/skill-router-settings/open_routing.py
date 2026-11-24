@@ -24,6 +24,35 @@ OUTPUT_VERB=re.compile(r"(?:を|に)(?:作る|制作する|作成する|生成�
 # "README.md" have no space after the dot and stay intact.
 SPLIT=re.compile(r"[。\n；;]|(?<=[a-z0-9)\]\"'])[.?!]\s+(?=[a-z])|[、,]\s*(?=(?:さらに|次に|続けて|その後|別途|一方|あわせて|併せて|そして|ほかに))")
 
+# A request by its form rather than its verb: a Japanese clause ending in a request form
+# (〜て/〜で, 〜たい, 〜ほしい, お願い), or an English imperative sentence. Asking only to be
+# told something (〜教えて, a question) is not work for a skill.
+JP_REQUEST_END=re.compile(r"(?:(?<!教え)(?<!教えて)[てで](?:ください|下さい|ほしい|欲しい|もらえ(?:る|ます)か?|くれ(?:る|ない)?|みて)?|たい(?:です)?|(?:て|で)?ほしい(?:です)?|お願い(?:します|いたします)?|ように(?:して|したい))[?？!！。\s]*$")
+INFO_ONLY=re.compile(r"(?:違い|仕方|やり方|理由|意味|方法|とは|何|なぜ|どう(?:して|やって|すれば))[^、,。]{0,12}(?:を|は|が)?(?:教えて|知りたい|説明して)")
+EN_LEAD=re.compile(r"^(?:(?:please|pls|kindly)\s+|(?:can|could|would|will) you\s+(?:please\s+)?|i (?:want|need|would like) (?:you )?to\s+|help me(?: to)?\s+|let'?s\s+)")
+EN_NOT_VERB=frozenset("""the a an this that these those it its i we you my our your their there here what why how when where who which
+whose is are was were am do does did can could would should will has have had great thanks thank ok okay sure yes no nice
+cool perfect hello hi hey good awesome sorry so and but also""".split())
+
+# A question ("なんで失敗してるの？", "どっちがいい？") asks to be told, unless it asks for the
+# work itself ("直してくれる？", "作ってもらえますか？").
+JP_QUESTION=re.compile(r"(?:の|か|かな|って何|は|いい|どう|どっち|なに|何)[?？]?\s*$|[?？]\s*$")
+JP_ASKS_WORK=re.compile(r"(?:て|で)(?:くれ(?:る|ない|ます)|もらえ(?:る|ない|ます)|いただけ(?:る|ます))か?[?？]?\s*$")
+
+def is_request(part):
+    jp=bool(re.search(r"[\u3041-\u30ff\u3400-\u9fff]",part))
+    if jp and JP_QUESTION.search(part) and not JP_ASKS_WORK.search(part):return False
+    if REQUEST.search(part):return True
+    if JP_REQUEST_END.search(part) and not INFO_ONLY.search(part):return True
+    if jp:return False
+    t=part.strip()
+    lead=EN_LEAD.match(t)
+    body=t[lead.end():] if lead else t
+    first=re.match(r"[a-z]+",body)
+    if not first or len(body.split())<3:return False
+    if t.endswith("?") and not lead:return False
+    return bool(lead) or first.group() not in EN_NOT_VERB
+
 KEEP_AS_IS=re.compile(r"(?:変え|変更し|触ら|残さ|含め|し)ない|維持|保持|そのまま|禁止|不要")
 
 def work_clauses(text):
@@ -59,7 +88,7 @@ def work_clauses(text):
             if tail and (KEEP_AS_IS.search(tail[0]) or NOT_REQUEST.search(tail[0])):
                 part=head
             part=HEADING.sub("",part)
-            if (REQUEST.search(part) or video_operation(part) in {"video-explain","video-extract","video-extract-audio","video-extract-frames","video-frames-ocr"} or OUTPUT_LABEL.fullmatch(section) and OUTPUT_VERB.search(part)) and (not NOT_REQUEST.search(part) or video_operation(part)=="video-explain"):
+            if (is_request(part) or video_operation(part) in {"video-explain","video-extract","video-extract-audio","video-extract-frames","video-frames-ocr"} or OUTPUT_LABEL.fullmatch(section) and OUTPUT_VERB.search(part)) and (not NOT_REQUEST.search(part) or video_operation(part)=="video-explain"):
                 parts.append((section+" "+part if OUTPUT_LABEL.fullmatch(section) else part))
     return parts
 
@@ -145,12 +174,14 @@ ALIASES={
  "status-update": r"(?<![a-z0-9])3p ?(?:アップデート|updates?)|週次(?:報告|レポート|アップデート)|進捗報告|ステータス(?:報告|レポート)|(?<![a-z0-9])(?:status (?:reports?|updates?)|leadership updates?|weekly updates?)(?![a-z0-9])",
  "ai-writing": r"(?<![a-z0-9])ai(?:っぽ|臭|らし)|人間が書いた(?:ような|みたい|よう)|(?<![a-z0-9])(?:ai[- ](?:writing(?: patterns?)?|isms?|slop|tells?)|sounds? (?:like )?(?:an? )?ai(?:[- ](?:generated|written))?|(?:reads?|sounds?) like (?:a )?human|humans? wrote|humaniz\w*)(?![a-z0-9])"
 }
+# Latin words are bounded by lookarounds: Japanese characters count as \w, so "LinkedInに"
+# has no \b after the name.
 SPECIALIZATIONS={
-    "search marketing": r"\bseo(?:\b|[- ])|検索順位",
-    "editorial article": r"\barticles?\b|記事",
-    "third-party provider": r"\bgemini(?:\b|[- ])|nano banana",
-    "chinese text": r"\bchinese\b|中文|中国語",
-    "social post": r"\blinkedin\b|リンクトイン",
+    "search marketing": r"(?<![a-z0-9])seo(?![a-z0-9])|検索順位",
+    "editorial article": r"(?<![a-z0-9])articles?(?![a-z0-9])|記事",
+    "third-party provider": r"(?<![a-z0-9])gemini(?![a-z0-9])|nano banana",
+    "chinese text": r"(?<![a-z0-9])chinese(?![a-z0-9])|中文|中国語",
+    "social post": r"(?<![a-z0-9])linkedin(?![a-z0-9])|リンクトイン",
 }
 SCOPE={key:re.compile(rx,re.I) for key,rx in SPECIALIZATIONS.items()}
 # Named developer/writing tasks. Each is specific enough to qualify a candidate alone.
@@ -253,7 +284,8 @@ def role_picks(parts, records, explanations=None):
     picks=[]
     # Explicit video roles must not fall through to unrelated metadata matches.
     # A general request mentioning video is also insufficient to infer extraction.
-    covered=set(video_by_part)
+    # A request that only mentions a video (a summary of one) is still matched by content.
+    covered={i for i,op in video_by_part.items() if op!="video-unspecified"}
     for key,role_text,evidence,limit in active:
         if not key.startswith("video-"):
             first_start=whole.index(role_text)
@@ -309,216 +341,319 @@ def keyword_terms(row):
         if 2<=len(k)<=40 and k not in out:out.append(k)
     return out[:16]
 
-# A keyword such as "スライド作成" also matches "スライドを作成して": the subject is said,
-# and so is the same action word.
-ACTION_TAIL=re.compile(r"(作成|生成|作り|作る|開発|設計|変換|編集|修正|分析|確認|管理|追加|整理|翻訳|添削|校正|要約|化)$")
-
-def said_keyword(k,part):
-    if k in part:return True
-    m=ACTION_TAIL.search(k)
-    if not m:return False
-    stem=k[:m.start()]
-    return len(stem)>=2 and stem in part and m.group(1) in part
-
 # Where a request points (a URL, an absolute path to save to) is not the work it asks for;
 # its words ("github", "users") say nothing about which skill fits.
 REFERENCE=re.compile(r"(?i)\b[a-z][a-z0-9+.-]*://\S+|(?<![\w.])(?:[a-z]:[\\/]|~[\\/]|/(?:users|home|mnt|tmp|var|opt)/)\S*")
+# A file the request names says what format it is, not what the work is: "notes-en.md" -> "md".
+FILE_NAME=re.compile(r"""[^\s"'「」『』()<>、。,]+\.(md|txt|py|tsx?|jsx|json|csv|tsv|xlsx|xls|docx|doc|pptx|pdf|ya?ml|toml|html?|css|java|go|rs|rb|php|sh|ps1|sql|log|png|jpe?g|gif|svg|mp4|mov|mp3|wav)(?![a-z0-9])""")
 
-def without_operations(text):
-    """The text with its operation phrases ("作成", "直して", "rewrite") taken out."""
-    for key in OPS:text=PATTERNS[key].sub(" ",text)
-    return ACTION_TAIL_ANY.sub(" ",text)
+def strip_references(text):
+    return FILE_NAME.sub(" ",REFERENCE.sub(" ",normalize(text)))
 
-ACTION_TAIL_ANY=re.compile(ACTION_TAIL.pattern.rstrip("$"))
+def file_formats(text):
+    return frozenset(m.group(1) for m in FILE_NAME.finditer(REFERENCE.sub(" ",normalize(text))))
+
+# ---- General retrieval -------------------------------------------------------------
+# A request is matched against each skill's own words: its name, the positive part of its
+# description, and the keywords written for it at index time (Japanese terms for English
+# skills). Terms are weighted by how rare they are in this catalogue, and Japanese words are
+# also read through a bilingual vocabulary learned from the catalogue itself (skills whose
+# keywords say "セキュリティ" tend to say "security"). No list of domains, products or skills
+# is kept here; a new skill is routed by what it says about itself.
+
+EN_STOP=frozenset("""a an the this that these those it its is are was were be been am to of in on at by for
+from with as or and but if then than so not no do does did can could would should will shall may might
+me my mine we our us you your he she they them their i what which who whom whose why how when where
+there here all any some each every both few more most other such only own same too very just also
+please help want need like make sure get got let lets using use via into onto out up down over under
+again new one two three first last next per about after before because while once whether thing things""".split())
+# Words skill names add to say what kind of skill it is, not what it works on.
+ROLE_WORDS=frozenset("""expert pro patterns pattern best practices practice skill skills guide guidelines development
+developer automation toolkit helper specialist engineer engineering architect official master mastery advanced
+basics fundamentals workflow workflows assistant agent agents builder generator manager tool tools kit""".split())
+WORD=re.compile(r"[a-z][a-z0-9+#]*")
+KATAKANA=re.compile(r"[ァ-ヿー]+")
+JP_WORD_RUN=re.compile(r"[ァ-ヿー]+|[㐀-鿿]+")
+
+@lru_cache(maxsize=50000)
+def words(text):
+    """Latin content words, inflections folded ("refactoring" -> "refactor")."""
+    return frozenset(canonical(t) for t in WORD.findall(normalize(text)) if len(t)>=2 and t not in EN_STOP)
 
 @lru_cache(maxsize=65536)
-def keyword_subject(k):
-    """A keyword's words other than its action: "スライド" of "スライド作成", "es" of "es作成".
-    Empty for a keyword that is an action alone ("書き直し", "作り直し")."""
-    words=[]
-    for word in without_operations(k).split():
-        word=re.sub(r"^[\u3041-\u309f]+|[\u3041-\u309f]+$","",word)
-        if len(word)>=2:words.append(word)
-    return tuple(words)
+def jp_words(text):
+    """Japanese words without a dictionary: katakana runs, and kanji runs in two-character
+    words ("新卒採用情報" -> 新卒/採用/情報); hiragana (particles, endings) separates them."""
+    out=[]
+    for run in JP_WORD_RUN.findall(normalize(text)):
+        if KATAKANA.fullmatch(run):
+            if len(run)>=2:out.append(run)
+        elif len(run)>=4:
+            cut=[run[i:i+2] for i in range(0,len(run)-len(run)%2,2)]
+            if len(run)%2:cut[-1]+=run[-1]
+            out.extend(cut)
+        elif len(run)>=2:out.append(run)
+    return frozenset(out)
 
-def subject_said(k,rest,rest_grams):
-    """The request names what the keyword acts on, outside its own operation phrase: a
-    Latin word as a token, a short word whole, a longer one by most of its n-grams."""
-    subject=keyword_subject(k)
-    if not subject:return False
-    for word in subject:
-        for run in re.findall(r"[a-z0-9][a-z0-9&+#.]*",word):
-            if not re.search(r"(?<![a-z0-9])"+re.escape(run)+r"(?![a-z0-9])",rest):return False
-        jp="".join(re.findall(r"[\u3041-\u30ff\u3400-\u9fff]+",word))
-        if not jp or jp in rest:continue
-        grams=features(jp)[1]
-        if len(jp)<4 or not grams or len(grams&rest_grams)/len(grams)<.6:return False
-    return True
-
-def keyword_cover(parts,latin,part,qj,ql):
-    """Share of a keyword the request says. Every word of it must be said: a short word
-    whole, a longer one by most of its character n-grams ("プロンプトを改善" for
-    "プロンプト改善"), an English word as a token. "チーム 連絡" needs both words."""
-    if not parts or not latin<=ql:
-        return 0.
-    cover=1.
-    for p,grams in parts:
-        if p in part:continue
-        if len(p)<4 or not grams:return 0.
-        cover=min(cover,len(grams&qj)/len(grams))
-    return cover
+def compact(text):
+    return re.sub(r"\s+","",normalize(text))
 
 def prepare(row):
-    """Everything rank_open needs from one skill row; cacheable per row (see local_index)."""
+    """Everything the general retrieval needs from one skill row; cacheable per row."""
     n,d=row["name"],row["description"]
     positive=re.split(r"(?i)\b(?:do not use|not intended for|avoid using)\b",d,maxsplit=1)[0]
     keywords=keyword_terms(row)
-    # Keywords count only when the request says one (below); folding them into the
-    # description's vocabulary added operations and tasks the skill never claimed.
     meta=features(n+" "+positive)
-    return (features(n)[0],features(n)[2],meta,
+    name_words=frozenset(canonical(t) for t in normalize(n).split("-") if t)
+    kw_words=frozenset().union(*(words(k) for k in keywords)) if keywords else frozenset()
+    jp_kw=tuple(k for k in keywords if JP.search(k))
+    # Of the description's features only its concepts are used here; its words are below.
+    return (name_words, meta[2], (frozenset(),frozenset(),meta[2]),
             frozenset(k for k,v in SCOPE.items() if v.search(n+" "+positive[:160])),
-            tuple(k for k in keywords if JP.search(k)),
-            tuple((tuple((p,features(p)[1]) for p in k.split() if JP.search(p)),features(k)[0])
-                  for k in keywords if JP.search(k)))
+            words(positive), kw_words, jp_kw, jp_words(positive).union(*(jp_words(k) for k in jp_kw)))
 
 def pack(entry):
-    nwords,nconcepts,meta,scope,kw,kj=entry
-    return [sorted(nwords),sorted(nconcepts),[sorted(x) for x in meta],sorted(scope),list(kw),[[[[p,sorted(g)] for p,g in parts],sorted(w)] for parts,w in kj]]
+    nw,nc,meta,scope,dw,kw,jk,dg=entry
+    return [sorted(nw),sorted(nc),[sorted(x) for x in meta],sorted(scope),sorted(dw),sorted(kw),list(jk),sorted(dg)]
 
 def unpack(raw):
-    nwords,nconcepts,meta,scope,kw,kj=raw
-    return (frozenset(nwords),frozenset(nconcepts),tuple(frozenset(x) for x in meta),frozenset(scope),tuple(kw),tuple((tuple((p,frozenset(g)) for p,g in parts),frozenset(w)) for parts,w in kj))
+    nw,nc,meta,scope,dw,kw,jk,dg=raw
+    return (frozenset(nw),frozenset(nc),tuple(frozenset(x) for x in meta),frozenset(scope),
+            frozenset(dw),frozenset(kw),tuple(jk),frozenset(dg))
 
 def catalog_counts(entries):
-    counts=Counter()
-    kcounts=Counter()
-    for entry in entries:
-        for group in entry[2]:counts.update(group)
-        kcounts.update(entry[4])
-    return counts,kcounts
+    """Document frequencies of Latin and Japanese words, and the bilingual vocabulary: for each
+    Japanese word, the English words that occur in the same skills far more than by chance
+    (cosine of their skill sets)."""
+    wdf=Counter(); gdf=Counter(); co=Counter()
+    for nw,nc,meta,scope,dw,kw,jk,dg in entries:
+        latin=nw|dw|kw
+        wdf.update(latin); gdf.update(dg); wdf.update("concept:"+c for c in meta[2])
+        for j in dg:
+            for e in latin:co[j,e]+=1
+    lexicon={}
+    for (j,e),c in co.items():
+        if c<3 or e in ROLE_WORDS:continue
+        cos=c/math.sqrt(gdf[j]*wdf[e])
+        if cos>=.35:lexicon.setdefault(j,[]).append((e,round(cos,3)))
+    for j in lexicon:lexicon[j]=sorted(lexicon[j],key=lambda x:-x[1])[:4]
+    return wdf,gdf,lexicon
 
-def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None):
-    """Retrieve by content and reject weak, operation-mismatched, or tied candidates.
+def postings(entries,counts):
+    """term -> positions of the skills that have it: Latin words, Japanese words (and the
+    catalogue words a katakana compound is made of), and named concepts."""
+    gdf=counts[1]
+    post={}
+    def add(t,i):
+        rows=post.setdefault(t,[])
+        if not rows or rows[-1]!=i:rows.append(i)
+    for i,(nw,nc,meta,scope,dw,kw,jk,dg) in enumerate(entries):
+        for t in sorted(nw|dw|kw|dg):add(t,i)
+        for c in sorted(meta[2]):add("concept:"+c,i)
+        for w in sorted(dg):
+            if len(w)>=5 and KATAKANA.fullmatch(w):
+                for k in range(2,len(w)-1):
+                    if gdf.get(w[:k]) and gdf.get(w[k:]):add(w[:k],i);add(w[k:],i)
+    return post
+
+ACTION_WORD=re.compile(r"(?:作成|生成|作り|作る|開発|設計|変換|編集|修正|分析|確認|管理|追加|整理|翻訳|添削|校正|要約|改善|最適化|検証|実装|構築|対応|調査|比較|削除|更新|自動化|化)$")
+
+class Query:
+    """One work clause plus the sentences around it that set its subject."""
+    def __init__(self,part,context,counts):
+        wdf,gdf,lexicon=counts
+        self.part=strip_references(part)
+        self.context=strip_references(context)
+        whole=normalize(self.part+" "+self.context)
+        self.text=whole
+        self.compact=compact(whole)
+        self.words=words(self.part)
+        # A named file's format ("xlsx" of "経費.xlsx") is weak context, never a skill's name.
+        self.context_words=(words(self.context)|file_formats(part+" "+context))-self.words
+        self.jp=self.said_jp(whole,gdf)
+        self.jp_part=self.said_jp(normalize(self.part),gdf)
+        # Japanese words read in English through the catalogue's own vocabulary.
+        self.translated={}
+        for j in self.jp:
+            for e,cos in lexicon.get(j,()):
+                if e in self.words:continue
+                f=cos*(.8 if j in self.jp_part else .4)
+                if f>self.translated.get(e,(0,))[0]:self.translated[e]=(f,j)
+        ql,qj,qc=features(whole)
+        self.concepts=qc
+        self.targets=qc-OPS
+        self.operations=features(self.part)[2]&OPS
+        self.scope={k for k,v in SCOPE.items() if v.search(whole)}
+        self.runs=frozenset(r for r in KATAKANA.findall(whole) if len(r)>=3)
+
+    @staticmethod
+    def said_jp(text,vocab):
+        """Catalogue words the text says. A kanji word may sit inside a longer run; a katakana
+        word must be a whole katakana run, or one with another catalogue word attached
+        ("セキュリティ" in "セキュリティチェック", not "ログ" in "ログイン")."""
+        out=set()
+        for run in JP_WORD_RUN.findall(text):
+            if KATAKANA.fullmatch(run):
+                if run in vocab:out.add(run)
+                for i in range(2,len(run)-1):
+                    a,b=run[:i],run[i:]
+                    if a in vocab and b in vocab:out.update((a,b))
+            else:
+                for n in range(2,min(6,len(run))+1):
+                    out.update(x for x in (run[i:i+n] for i in range(len(run)-n+1)) if x in vocab)
+        return frozenset(out)
+
+def score_skill(q,entry,wdf,gdf,size,row):
+    """Score and the distinct pieces of evidence (words, keywords, named tasks) behind it."""
+    nw,nc,(dl,dj,dc),scope,dw,kw,jk,dg=entry
+    def idf(t,df):return math.log(1+(size+.5)/(df[t]+.5))
+    score=0.;evidence=set();strong=False
+    shared=set(q.jp&dg) if dg else set()
+    # A Japanese word and its English reading are one term: count the stronger match once.
+    terms=[(t,1.) for t in q.words]+[(t,.5) for t in q.context_words]+[
+        (e,f) for e,(f,j) in q.translated.items() if j not in shared]
+    for t,factor in terms:
+        in_name=t in nw; in_text=t in dw or t in kw
+        if not (in_name or in_text):continue
+        w=idf(t,wdf)
+        score+=factor*w*(1.6*in_name+1.0*in_text)
+        evidence.add(t)
+        # A rare word the skill is named after (docker, mermaid, terraform) identifies it.
+        if in_name and factor>=.8 and w>=3.5 and t not in ROLE_WORDS:strong=True
+    if dg:
+        # A katakana compound of the skill ("セキュリティレビュー") is matched by a word of it the
+        # request says ("セキュリティ") when the rest is a catalogue word too.
+        for w in dg-shared:
+            if len(w)>=5 and KATAKANA.fullmatch(w):
+                for r in q.runs:
+                    if r!=w and (w.startswith(r) and gdf.get(w[len(r):]) or w.endswith(r) and gdf.get(w[:-len(r)])):
+                        shared.add(r)
+        if shared:
+            # Skills with many words share more by chance (BM25 length normalisation).
+            g=sum(idf(x,gdf)*(1. if x in q.jp_part else .5) for x in shared)
+            score+=JP_WEIGHT*g/(.25+.75*len(dg)/JP_DOC_AVG)
+            evidence.update("jp:"+x for x in shared if idf(x,gdf)>=2.5)
+    # A keyword said whole, with what it acts on ("テーブル設計"), names the task itself.
+    best=0.
+    for k in jk:
+        kc=compact(k)
+        if kc in q.compact and any(not ACTION_WORD.search(w) for w in jp_words(k)):
+            best=max(best,sum(idf(x,gdf) for x in jp_words(k))/max(1,len(jp_words(k)))*min(1.,len(kc)/4))
+    if best:
+        score+=PHRASE_WEIGHT*best
+        evidence.add("phrase")
+        if best>=2.:strong=True
+    # A task or medium named the same way by the request and the skill (commit, video), as
+    # rare as it is in this catalogue.
+    hit=q.targets&dc
+    for key in hit:
+        w=idf("concept:"+key,wdf)
+        score+=w*(1.6 if key in TASKS else .6)
+        evidence.add("concept:"+key)
+        if key in TASKS:strong=True
+    score+=.8*len(q.operations&dc)
+    # A named task the candidate never mentions; a specialisation the request did not ask for.
+    if q.targets&TASKS and not hit&TASKS:score-=3.
+    score-=2.5*len((nc&TASKS)-q.concepts)
+    score-=2.7*len(scope-q.scope)
+    required=re.search(r"(?i)\bfrom\s+([a-z][a-z0-9_-]+)\s+(?:projects?|workspaces?)\b",row["description"])
+    if required and required.group(1).lower() not in q.words|q.context_words:score-=3.
+    # Name words the request never said (odoo-docker-deployment vs docker-expert).
+    said=q.words|q.context_words|set(q.translated)
+    rest=normalize(row["name"])
+    for key in hit:rest=PATTERNS[key].sub(" ",rest)
+    rest={canonical(t) for t in re.split(r"[-\s]+",rest) if t}
+    score-=.35*len({t for t in rest if t not in ROLE_WORDS and len(t)>=3}-said)
+    return score,evidence,strong
+
+THRESHOLD=7.0
+STRONG_THRESHOLD=5.0
+JP_DOC_AVG=8
+JP_WEIGHT=1.2
+PHRASE_WEIGHT=1.5
+SHORTLIST=5
+# A candidate this far ahead of the next is handed alone; otherwise the close ones are listed
+# and the agent, which reads the request, chooses among them by their descriptions.
+LEAD=.25
+
+def rank_general(q,catalog,counts,size=None):
+    """[(score,row,alone)]: one clear candidate, or a shortlist of plausible ones."""
+    wdf,gdf,_=counts
+    size=size or len(catalog)
+    pool=[]
+    for row,entry in catalog:
+        s,ev,strong=score_skill(q,entry,wdf,gdf,size,row)
+        # One identifying piece of evidence (a rare name word, a named task, a keyword said
+        # whole) is enough at a lower score; otherwise two pieces and a higher score.
+        if not (strong and s>=STRONG_THRESHOLD or len(ev)>=2 and s>=THRESHOLD):continue
+        pool.append((s,row,bool(entry[3]-q.scope)))
+    pool.sort(key=lambda x:(-x[0],x[1]["name"],x[1]["path"]))
+    # A skill specialised for something the request never names (Chinese text, SEO) is listed
+    # beside a general one only when it scores nearly as well.
+    if pool:
+        top=pool[0][0]
+        pool=[x for x in pool if not x[2] or x[0]>=.85*top]
+    pool=[(s,row) for s,row,_ in pool]
+    if not pool:return []
+    best=pool[0][0]
+    if len(pool)==1 or best-pool[1][0]>=LEAD*best:
+        return [(best,pool[0][1],True)]
+    return [(s,row,False) for s,row in pool[:int(SHORTLIST)] if s>=best*.5]
+
+CONTEXT_SPLIT=re.compile(r"[。\n；;]|(?<=[a-z0-9)\]\"'])[.?!]\s+(?=[a-z])")
+
+def context_of(prompt,parts):
+    """Non-request sentences on the same line as a work clause: "Djangoの一覧ページが遅い。"
+    names what "N+1を見て改善して" is about. Quoted text, code, negations and examples are left out."""
+    clean=FENCE.sub(" ",normalize(prompt))
+    out=[]
+    for line in clean.splitlines():
+        line=QUOTE.sub(" ",line)
+        sents=[x.strip(" \t、・-*") for x in CONTEXT_SPLIT.split(line)]
+        if not any(any(p in s or s in p for p in parts) for s in sents if s):continue
+        for s in sents:
+            if not s or any(s in p or p in s for p in parts):continue
+            if NOT_REQUEST.search(s) or EXAMPLE.match(s) or SOURCE.search(s) or len(s)>160:continue
+            out.append(s)
+    return " ".join(out)
+
+def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None, prompt=None):
+    """Retrieve by content and reject weak candidates.
     prepared: optional {path: prepare(row)} computed ahead of time."""
     primary,covered=role_picks(parts,records,explanations)
+    context=context_of(prompt,parts) if prompt else ""
     parts=[p for idx,p in enumerate(parts) if idx not in covered and not known_for(p)]
     if not parts:return primary
-    prepared=prepared or {}
-    catalog=[(row,*(prepared.get(row["path"]) or prepare(row))) for row in records]
-    # Term frequencies over the whole catalogue; a cache may supply them (see local_index).
-    counts,kcounts=getattr(prepared,"counts",None) or catalog_counts(c[1:] for c in catalog)
-    size=len(catalog)
-    if not size:return []
-    def weight(k):return min(3.5,math.log(1+(size+.5)/(counts[k]+.5)))
+    if prepared is None:prepared={}
+    if not records:return primary
+    post=getattr(prepared,"post",None)
+    order=getattr(prepared,"order",None)
+    if post is not None and order is not None and order==[r["path"] for r in records]:
+        counts=prepared.counts
+        full=None
+    else:
+        full=[(row,prepared.get(row["path"]) or prepare(row)) for row in records]
+        counts=getattr(prepared,"counts",None) or catalog_counts(c[1] for c in full)
     out=list(primary)
+    listed=[]
     for part in parts:
-        part=REFERENCE.sub(" ",part)
-        ql,qj,qc=features(part)
-        bare=without_operations(part)
-        bare_grams=features(bare)[1]
-        qscope={k for k,v in SCOPE.items() if v.search(part)}
-        targets=qc-OPS
-        operations=qc&OPS
-        for target in (tuple(sorted(targets & {"video","image","audio"})) if len(targets & {"video","image","audio"})>1 else (None,)):
-            pool=[]
-            for row,nwords,nconcepts,(dl,dj,dc),scope,kw,kj in catalog:
-                exact=(ql&dl)-set(ALIASES)
-                sem=qc&dc
-                hit=targets&dc
-                if target is not None and target not in hit:continue
-                name=exact&nwords
-                format_only={x for x in exact if x in {"png","jpeg","gif","mp4","svg","csv","json","md"}}
-                # A tool or skill whose existing inputs are missing is weaker than a general fit.
-                required=re.search(r"(?i)\bfrom\s+([a-z][a-z0-9_-]+)\s+(?:projects?|workspaces?)\b",row["description"])
-                jp=qj&dj
-                # A task term alone is insufficient. Match the operation as well,
-                # or have concrete repository/tool vocabulary / multiple rare words.
-                # A Japanese keyword written for this skill at index time ("お詫びメール"),
-                # said in the request, names the task itself, so it stands for the operation.
-                # How much of each keyword the request says: all of it ("お詫びメール"), its
-                # subject and action apart ("スライドを作成"), or most of its character n-grams
-                # ("プロンプトを改善" for "プロンプト改善"). Only the best keyword counts.
-                # A keyword's English words ("todo 書き直し") must be in the request as well.
-                # A keyword stands for the task only when the request also names what it acts
-                # on, outside the request's own action words: "es" of "es作成" (not
-                # "dockerfileを作成"), "スライド" of "スライド作成". A keyword that is an action
-                # alone counts only as that operation, when the request asks for it ("翻訳").
-                kfit=[(1. if said_keyword(k,part) else keyword_cover(parts,w,part,qj,ql),k) for k,(parts,w) in zip(kw,kj)]
-                kfit=[(c,k) for c,k in kfit if c>=.6 and (subject_said(k,bare,bare_grams) if keyword_subject(k)
-                                                          else features(k)[2]&OPS and features(k)[2]<=operations)]
-                said_kw=[k for c,k in kfit if c>=.6]
-                kbest=max(((c*min(3.5,math.log(1+(size+.5)/(kcounts[k]+.5)))*min(1.,len(k)/4),k) for c,k in kfit if c>=.6),default=(0,None))[0]
-                if operations and not operations&dc and not said_kw:
-                    if len(name)<2:continue
-                # One rare word shared by the request and the skill's name (Docker, Mermaid,
-                # Kubernetes) is concrete enough when the request asks for work.
-                rare_name=bool(operations) and any(weight(t)>=2.6 for t in name)
-                if not ((hit and (sem&OPS or name or hit&TASKS)) or len(name)>=2 or len(exact)>=3 or len(jp)>=5 or rare_name
-                        or said_kw):
-                    continue
-                score=(sum(weight(t) for t in exact)*1.1
-                       +sum(weight(t) for t in name)*1.1
-                       +sum(weight(t) for t in hit)*1.8
-                       + 3.4*len(nconcepts&hit)
-                       - .65*sum(weight(t) for t in format_only)
-                       - (3 if required and required.group(1).lower() not in ql else 0)
-                       - 2.7*len(scope-qscope)
-                       +sum(weight(t) for t in sem&OPS)*1.15
-                       +sum(weight(t) for t in jp)*.28
-                       # The strongest keyword only: "リファクタ" and "リファクタリング" are one term.
-                       +kbest*1.8
-                       - .35*len((dc&OPS)-operations))
-                # Specific tool requested: prefer its implementation over vague "editor" overlap.
-                if operations and (operations&dc)!=operations and not said_kw:
-                    score-=1.4*len(operations-dc)
-                # Within a task family named by the skills themselves, prefer the general
-                # one ("code-reviewer") to a qualified one ("receiving-code-review").
-                # A named task the candidate never mentions is a weak fit, however much
-                # incidental vocabulary it shares.
-                if targets&TASKS and not hit&TASKS:
-                    score-=5
-                # A skill for another named task ("unslop-review" for review comments) is a
-                # specialisation the request did not ask for.
-                score-=2.5*len((nconcepts&TASKS)-qc)
-                # The request and the skill naming the task with the same phrase
-                # ("3P update") is stronger than a merely related one ("weekly updates").
-                for key in hit&TASKS:
-                    said=lambda text:{m.group().rstrip("s") for m in PATTERNS[key].finditer(text)}
-                    if said(normalize(part))&said(normalize(row["name"]+" "+row["description"])):
-                        score+=3
-                family=nconcepts&hit&TASKS
-                rest=normalize(row["name"])
-                for key in family:rest=PATTERNS[key].sub(" ",rest)
-                unasked=len({canonical(w) for w in LATIN.findall(rest)}-ql-GENERIC)
-                if family:score-=.9*unasked
-                pool.append((score,row,unasked))
-            pool.sort(key=lambda item:(-item[0],item[1]["name"],item[1]["path"]))
-            # Near-tied candidates whose names carry words the request never mentions
-            # (odoo-docker-deployment, react-flow-node-ts) yield to the plain one (docker-expert).
-            near=[item for item in pool if pool and pool[0][0]-item[0]<.8]
-            if len(near)>1:
-                least=min(item[2] for item in near)
-                plain=[item for item in near if item[2]==least]
-                if len(plain)==1 and all(item[2]>=least+1 for item in near if item is not plain[0]):
-                    pool=[plain[0]]+[item for item in pool if item[0]<pool[0][0]-.8]
-            pool=[(score,row) for score,row,*_ in pool]
-            shortlist=pool[:top]
-            tied=[]
-            if shortlist and shortlist[0][0]>=5.25 and len(shortlist)>1 and shortlist[0][0]-shortlist[1][0]<.8:
-                # Up to three equally strong members of the same named task family are all
-                # offered; the agent chooses between them. Any other tie stays unresolved.
-                fam=lambda r:features(r["name"])[2]&targets&TASKS
-                top_fam=fam(shortlist[0][1])
-                group=[r for sc,r in shortlist if shortlist[0][0]-sc<.8]
-                if top_fam and len(group)<=3 and all(fam(r)==top_fam for r in group):
-                    tied=group[1:]
-            if shortlist and shortlist[0][0]>=5.25 and (len(shortlist)==1 or shortlist[0][0]-shortlist[1][0]>=.8 or tied):
-                out.append(("open-search",shortlist[0][1]))
-                out.extend(("open-search",r) for r in tied)
-                if explanations is not None:
-                    explanations.setdefault(shortlist[0][1]["path"], {
-                        "operation":target or "general", "basis":"metadata_match",
-                        "score":round(shortlist[0][0],3),
-                        "runner_up":round(shortlist[1][0],3) if len(shortlist)>1 else None})
+        q=Query(part,context,counts)
+        if full is None:
+            # Only skills sharing a word with the request can score.
+            terms=q.words|q.context_words|set(q.translated)|q.jp|q.runs|{"concept:"+t for t in q.targets}
+            hits=sorted({i for t in terms for i in post.get(t,())})
+            catalog=[(records[i],prepared[records[i]["path"]]) for i in hits]
+        else:
+            catalog=full
+        picks=rank_general(q,catalog,counts,len(records))
+        for i,(s,row,alone) in enumerate(picks):
+            if alone:out.append(("open-search",row))
+            else:listed.append((s,row))
+            if explanations is not None:
+                explanations.setdefault(row["path"],{
+                    "operation":"general","basis":"metadata_match","score":round(s,3),
+                    "runner_up":round(picks[1][0],3) if len(picks)>1 and i==0 else None})
+    # Shortlists of several clauses are one list, strongest first, as long as one clause's.
+    listed.sort(key=lambda x:(-x[0],x[1]["name"],x[1]["path"]))
+    out.extend(("open-shortlist",row) for s,row in listed[:int(SHORTLIST)])
     return out

@@ -53,14 +53,11 @@ class DevTaskRouting(unittest.TestCase):
         cases = [
             ("ステージ済みの変更を見て、コミットメッセージを書いて。", {"commit"}),
             ("このブランチのPR説明文を作成して。", {"pr-writer"}),
-            ("src/memo_store.py をコードレビューして。", {"code-reviewer"}),
             ("Proofread notes-en.md. Fix grammar and spelling only. Do not edit the file.", {"professional-proofreader"}),
             ("Summarize notes-en.md in three bullet points. Do not edit the file.", set()),
             ("123 + 456 はいくつ？", set()),
             # "generated" is not "generator"; the AI-writing task wins.
             ("Rewrite launch-post.md so it no longer sounds AI-generated.", {"avoid-ai-writing"}),
-            # A near tie goes to the skill whose name carries no unrequested words.
-            ("このNode.jsアプリのDockerfileを作成して。", {"docker-expert"}),
             ("Check this form for accessibility issues and fix them.", {"fixing-accessibility"}),
             ("weekly-notes.txt から、Memoチームの今週の3Pアップデートを書いて。", {"internal-comms"}),
             ("Write this week's 3P update for the Memo team from weekly-notes.txt.", {"internal-comms"}),
@@ -70,6 +67,15 @@ class DevTaskRouting(unittest.TestCase):
         for prompt, expect in cases:
             with self.subTest(prompt=prompt):
                 self.assertEqual(names(prompt), expect)
+
+    def test_close_candidates_are_listed_plain_one_first(self):
+        # Close candidates are all listed for the agent to choose; the one whose name carries
+        # no unrequested words ("odoo", "receiving") comes first.
+        ordered = lambda p: [r["name"] for _, r in INDEX["rank"](p, ROWS, [])]
+        self.assertEqual(ordered("このNode.jsアプリのDockerfileを作成して。")[0], "docker-expert")
+        self.assertEqual(ordered("src/memo_store.py をコードレビューして。")[0], "code-reviewer")
+        stages = {r["name"]: k for k, r in INDEX["rank"]("src/memo_store.py をコードレビューして。", ROWS, [])}
+        self.assertEqual(stages.get("code-reviewer"), "open-shortlist")
 
     def test_equal_family_members_are_both_offered(self):
         self.assertEqual(names("前回のタグからの変更をまとめてCHANGELOGを更新して。"), {"changelog-automation", "wiki-changelog"})
