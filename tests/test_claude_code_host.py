@@ -90,6 +90,17 @@ class ClaudeCodeHost(unittest.TestCase):
         self.assertIn('Skillツールで呼べる（名前のみ、指示ではない）: ["nihongo"]', txt)
         self.assertNotIn(".agents/skills/nihongo", txt)
 
+    def test_create_only_skill_is_named_for_an_edit(self):
+        skill = self.home / ".agents/skills/readme/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("---\nname: readme\ndescription: Create README files and generate project documentation.\n---\n", encoding="utf-8")
+        env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
+        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-router-settings/router.py"), "index", "refresh"],
+                       env=env, check=True, capture_output=True, timeout=30)
+        txt = self.context(self.run_hook({}))
+        self.assertIn("既存の文章を直す今回の依頼とは作業が異なる候補", txt)
+        self.assertNotIn("SKILL.mdをReadで1回開いて", txt)
+
     def test_child_run_is_silent(self):
         self.assertEqual(self.run_hook({"SKILL_ROUTER_CHILD": "1"}), {})
 

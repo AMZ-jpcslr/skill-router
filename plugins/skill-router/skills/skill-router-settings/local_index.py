@@ -268,6 +268,21 @@ def rank(prompt,records,guide_names,explanations=None,prepared=None):
     seen=set()
     return [(k,r) for k,r in results if r["path"] not in seen and not seen.add(r["path"])]
 
+EDIT_OPS=frozenset({"edit","proofread","translate","ai-writing"})
+
+def one_per_name(records):
+    """The same skill installed in two places (~/.codex/skills and ~/.claude/skills) is one
+    candidate, not a tie that hides both. Prefer the copy Claude Code loads itself."""
+    native=(HOME/".claude"/"skills").as_posix().casefold()
+    best={}
+    for row in records:
+        key=row["name"]
+        here=Path(row["path"]).as_posix().casefold().startswith(native)
+        if key not in best or (here and not best[key][0]):
+            best[key]=(here,row)
+    keep={id(r) for _,r in best.values()}
+    return [r for r in records if id(r) in keep]
+
 def with_keywords(records,path=None):
     """Attach index-time keywords to rows whose SKILL.md has not changed since."""
     obj=read_json(path or KEYWORDS,{})
@@ -333,7 +348,12 @@ def active_refs(prompt,guide_names,index=INDEX):
     out=[]
     allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
     explanations={}
-    records=with_keywords(obj["records"])
+    # A request to edit existing text is a weak fit for a skill that only creates new
+    # material; such candidates are named, not handed with a read instruction.
+    request=" ".join(OPEN["work_clauses"](prompt))
+    asked=OPEN["features"](request)[2]
+    editing=bool(asked&EDIT_OPS or JP_EDIT.search(request)) and "create" not in asked
+    records=with_keywords(one_per_name(obj["records"]))
     for stage,row in rank(prompt,records,guide_names,explanations,prepared_features(records)):
         p=Path(row["path"])
         if not NAME.fullmatch(row["name"]) or any(ord(c)<32 for c in str(p)) or p.name!="SKILL.md":continue
@@ -345,7 +365,9 @@ def active_refs(prompt,guide_names,index=INDEX):
         except (OSError,RuntimeError):continue
         if p!=resolved or not any(resolved.is_relative_to(root) for root in allowed):continue
         if row["stamp"]!=[now.st_mtime_ns,now.st_size,now.st_ino]:continue
-        out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),
+        offered=OPEN["features"](row["name"]+" "+row.get("description",""))[2]
+        fit="name_only" if editing and "create" in offered and not offered&EDIT_OPS else "read"
+        out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),"fit":fit,
                     "summary":summary(row.get("description","")),
                     "selection_reason":(explanations.get(row["path"]) if stage=="open-search" else None)
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
@@ -369,7 +391,13 @@ def command(argv):
             K=runpy.run_path(str(Path(__file__).with_name("keywords.py")))
             old=read_json(KEYWORDS,{})
             saved=old.get("records",{}) if isinstance(old,dict) and old.get("version")==1 else {}
-            saved,stats=K["update"](records,saved,limit=a.limit)
+            try:
+                saved,stats=K["update"](records,saved,limit=a.limit)
+            except K["Unavailable"] as err:
+                # Say so plainly; the index itself is still refreshed.
+                result["keywords_error"]=str(err)
+                print(json.dumps(result,ensure_ascii=True))
+                return 2
             write_json(KEYWORDS,{"version":1,"records":saved})
             result.update(stats)
         prepared_features(with_keywords(records))

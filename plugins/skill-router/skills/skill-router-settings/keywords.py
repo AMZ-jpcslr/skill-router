@@ -36,9 +36,26 @@ def clean(term):
     return term if 2 <= len(term) <= 40 else ""
 
 
+def find_claude():
+    """The Claude Code executable: CLAUDE_EXE, then PATH, then the desktop app's bundled copy."""
+    from pathlib import Path
+    named = os.environ.get("CLAUDE_EXE")
+    if named and Path(named).is_file():
+        return named
+    found = shutil.which("claude")
+    if found:
+        return found
+    for base in (Path.home() / "AppData/Local/Claude-Data", Path.home() / "Library/Application Support/Claude-Data"):
+        hits = sorted(base.glob("*/claude-code/*/*/claude*")) if base.is_dir() else []
+        hits = [h for h in hits if h.is_file() and h.name in ("claude", "claude.exe")]
+        if hits:
+            return str(hits[-1])
+    return None
+
+
 def claude_runner(prompt):
     """Ask Claude Code headlessly: no tools, no MCP, no session saved, this router's hook off."""
-    exe = shutil.which("claude")
+    exe = find_claude()
     if not exe:
         raise RuntimeError("claude command not found")
     cmd = [exe, "-p", "--model", os.environ.get("SKILL_ROUTER_KEYWORD_MODEL", "haiku"),
@@ -68,9 +85,17 @@ def command_runner(cmd):
     return run
 
 
+class Unavailable(RuntimeError):
+    """No way to write keywords here; nothing is attempted."""
+
+
 def default_runner():
     cmd = os.environ.get("SKILL_ROUTER_KEYWORD_CMD")
-    return command_runner(cmd) if cmd else claude_runner
+    if cmd:
+        return command_runner(cmd)
+    if not find_claude():
+        raise Unavailable("claude command not found; set CLAUDE_EXE to its path")
+    return claude_runner
 
 
 def batch_prompt(rows):
@@ -103,9 +128,19 @@ def update(records, saved, runner=None, limit=None, workers=4, batch=BATCH):
         todo = todo[:limit]
     chunks = [todo[i:i + batch] for i in range(0, len(todo), batch)]
     failed = 0
+    # Stop after the first batch if it fails outright, instead of failing every batch quietly.
+    if chunks:
+        first = _safe(ask, chunks[0], runner)
+        if first is None:
+            raise Unavailable("the first keyword batch failed; nothing was written")
+        chunks_done = [(chunks[0], first)]
+        chunks = chunks[1:]
+    else:
+        chunks_done = []
     stamps = {r["path"]: r.get("stamp") for r in records}
     with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
-        for chunk, result in zip(chunks, pool.map(lambda c: _safe(ask, c, runner), chunks)):
+        results = chunks_done + list(zip(chunks, pool.map(lambda c: _safe(ask, c, runner), chunks)))
+        for chunk, result in results:
             if result is None:
                 failed += len(chunk)
                 continue

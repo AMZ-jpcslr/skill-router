@@ -13,7 +13,7 @@ QUOTE=re.compile(r"「[^」]*」|『[^』]*』|“[^”]*”")
 # The markers describe grammatical roles, not specific deliverable domains.
 EXAMPLE=re.compile(r"^(?:参考(?:資料|例)?|素材|背景|作例|例文|(?:デモに出す|画面に出す)例|(?:動画|画像|デモ|映像)の中(?:では|で|に)|デモ(?:用|内)(?:では|で|に)?|例として)(?:[:：\s、]|(?<=では)|(?<=で)|(?<=として)|$)")
 SOURCE=re.compile(r"(?:を|の内容を)(?:例|作例|参考|素材|題材|サンプル)(?:と|に)して|を(?:参考|素材|題材|例)に|(?:例|資料|素材|参考)を(?:もと|元|基)に|(?:から|で)(?:引用|参照)して|(?:流れ|場面|様子|例)(?:を|として)(?:見せ|描|再現|使)|例として(?:見せ|描|使)|(?:を|も)(?:参照|参考に)して")
-NOT_REQUEST=re.compile(r"\b(?:do not|don't|never|without)\b|しないで|せずに|は不要|は変更しない|は修正しない|するべきか|したほうがいい|できるか教え|(?:方法|意味)(?:を教え|が載|は何)|例です|載っています|とは[？?]|だけを参考")
+NOT_REQUEST=re.compile(r"\b(?:do not|don't|never|without)\b|しないで|せずに|は不要|は変更しない|は修正しない|するべきか|したほうがいい|できるか教え|(?:方法|意味)(?:を教え|が載|は何)|例です|載っています|とは[？?]|って何|とは何|だけを参考")
 REQUEST=re.compile(r"して|考えて|(?:相手|役)になって|(?:作り|書き)直し(?:て|ください)|(?:更新|修正|編集|追加|作成)し\s*$|作って|書いて|まとめて|仕上げて|書き出して|レンダリングして|整えて|直して|調べて|提案して|付けて|入れて|追加して|切って|分けて|保存して|用意して|生成して|確認して|(?:を|で)(?:制作|作成|編集|抽出|変換|整理|実装|検証|追加|推敲|校正)\s*$|\b(?:create|generate|render|transcribe|extract|convert|rewrite|revise|polish|validate|fix|edit|summarize|compile|proofread|write|build|test|make|produce|explain|describe|export|remove|strip|humanize|clean up|tighten)\b")
 HEADING=re.compile(r"^(?:成果物|納品物|作業|依頼|お願い|やること|出力|deliverables?|task)\s*[:：]\s*")
 SECTION=re.compile(r"^\s*(?:【([^】]+)】|#{1,6}\s+([^:：\n]+))\s*[\\:]?\s*$")
@@ -160,30 +160,6 @@ GENERIC={"using","with","from","into","task","works","use","skill","please","whe
 PATTERNS={k:re.compile(v) for k,v in ALIASES.items()}
 LATIN=re.compile(r"[a-z][a-z0-9+#]{2,}")
 JP=re.compile(r"[\u3041-\u30ff\u3400-\u9fff]{2,}")
-# Japanese technical and writing terms mapped to the English words skill descriptions use.
-# This is shared vocabulary, not a list of skills.
-GLOSS=[(re.compile(rx),words.split()) for rx,words in (
-    (r"リファクタ", "refactor refactoring"),
-    (r"セキュリティ|脆弱性", "security vulnerability"),
-    (r"問題がないか", "review audit"),
-    (r"パフォーマンス|高速化|再レンダリング", "performance"),
-    (r"コンポーネント", "component components"),
-    (r"マニフェスト", "manifest manifests"),
-    (r"エンドポイント", "endpoint endpoints"),
-    (r"アクセシビリティ", "accessibility a11y"),
-    (r"実装計画|計画を立て|タスク(?:に|へ)?分解", "plan planning breakdown"),
-    (r"型エラー|型定義|型を", "types"),
-    (r"メール", "email"),
-    (r"お詫び|謝罪", "apology"),
-    (r"ポストモーテム", "postmortem postmortems"),
-    (r"障害", "incident"),
-    (r"(?:の|な)図(?:に|を|で)|ダイアグラム|構成図", "diagram diagrams"),
-    (r"デザイン", "design"),
-    (r"ランディングページ", "landing page"),
-    (r"プロンプト", "prompt prompts"),
-    (r"スキル", "skill skills"),
-    (r"ブログ", "blog"),
-)]
 
 def canonical(token):
     """Fold plain inflections: refactoring/refactor, dockerfile/docker, reviews/review.
@@ -201,7 +177,6 @@ def canonical(token):
 def features(value):
     text=normalize(value)
     latin={canonical(t) for t in set(LATIN.findall(text))-GENERIC}
-    latin.update(canonical(w) for rx,words in GLOSS if rx.search(text) for w in words if w not in GENERIC)
     jp=set()
     for run in JP.findall(text):
         for n in (2,3):
@@ -345,6 +320,19 @@ def said_keyword(k,part):
     stem=k[:m.start()]
     return len(stem)>=2 and stem in part and m.group(1) in part
 
+def keyword_cover(parts,latin,part,qj,ql):
+    """Share of a keyword the request says. Every word of it must be said: a short word
+    whole, a longer one by most of its character n-grams ("プロンプトを改善" for
+    "プロンプト改善"), an English word as a token. "チーム 連絡" needs both words."""
+    if not parts or not latin<=ql:
+        return 0.
+    cover=1.
+    for p,grams in parts:
+        if p in part:continue
+        if len(p)<4 or not grams:return 0.
+        cover=min(cover,len(grams&qj)/len(grams))
+    return cover
+
 def prepare(row):
     """Everything rank_open needs from one skill row; cacheable per row (see local_index)."""
     n,d=row["name"],row["description"]
@@ -355,15 +343,17 @@ def prepare(row):
     meta=features(n+" "+positive)
     return (features(n)[0],features(n)[2],meta,
             frozenset(k for k,v in SCOPE.items() if v.search(n+" "+positive[:160])),
-            tuple(k for k in keywords if JP.search(k)))
+            tuple(k for k in keywords if JP.search(k)),
+            tuple((tuple((p,features(p)[1]) for p in k.split() if JP.search(p)),features(k)[0])
+                  for k in keywords if JP.search(k)))
 
 def pack(entry):
-    nwords,nconcepts,meta,scope,kw=entry
-    return [sorted(nwords),sorted(nconcepts),[sorted(x) for x in meta],sorted(scope),list(kw)]
+    nwords,nconcepts,meta,scope,kw,kj=entry
+    return [sorted(nwords),sorted(nconcepts),[sorted(x) for x in meta],sorted(scope),list(kw),[[[[p,sorted(g)] for p,g in parts],sorted(w)] for parts,w in kj]]
 
 def unpack(raw):
-    nwords,nconcepts,meta,scope,kw=raw
-    return (frozenset(nwords),frozenset(nconcepts),tuple(frozenset(x) for x in meta),frozenset(scope),tuple(kw))
+    nwords,nconcepts,meta,scope,kw,kj=raw
+    return (frozenset(nwords),frozenset(nconcepts),tuple(frozenset(x) for x in meta),frozenset(scope),tuple(kw),tuple((tuple((p,frozenset(g)) for p,g in parts),frozenset(w)) for parts,w in kj))
 
 def catalog_counts(entries):
     counts=Counter()
@@ -394,7 +384,7 @@ def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None
         operations=qc&OPS
         for target in (tuple(sorted(targets & {"video","image","audio"})) if len(targets & {"video","image","audio"})>1 else (None,)):
             pool=[]
-            for row,nwords,nconcepts,(dl,dj,dc),scope,kw in catalog:
+            for row,nwords,nconcepts,(dl,dj,dc),scope,kw,kj in catalog:
                 exact=(ql&dl)-set(ALIASES)
                 sem=qc&dc
                 hit=targets&dc
@@ -408,7 +398,13 @@ def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None
                 # or have concrete repository/tool vocabulary / multiple rare words.
                 # A Japanese keyword written for this skill at index time ("お詫びメール"),
                 # said in the request, names the task itself, so it stands for the operation.
-                said_kw=[k for k in kw if said_keyword(k,part)]
+                # How much of each keyword the request says: all of it ("お詫びメール"), its
+                # subject and action apart ("スライドを作成"), or most of its character n-grams
+                # ("プロンプトを改善" for "プロンプト改善"). Only the best keyword counts.
+                # A keyword's English words ("todo 書き直し") must be in the request as well.
+                kfit=[(1. if said_keyword(k,part) else keyword_cover(parts,w,part,qj,ql),k) for k,(parts,w) in zip(kw,kj)]
+                said_kw=[k for c,k in kfit if c>=.6]
+                kbest=max(((c*min(3.5,math.log(1+(size+.5)/(kcounts[k]+.5)))*min(1.,len(k)/4),k) for c,k in kfit if c>=.6),default=(0,None))[0]
                 if operations and not operations&dc and not said_kw:
                     if len(name)<2:continue
                 # One rare word shared by the request and the skill's name (Docker, Mermaid,
@@ -427,10 +423,10 @@ def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None
                        +sum(weight(t) for t in sem&OPS)*1.15
                        +sum(weight(t) for t in jp)*.28
                        # The strongest keyword only: "リファクタ" and "リファクタリング" are one term.
-                       +max((min(3.5,math.log(1+(size+.5)/(kcounts[k]+.5)))*min(1.,len(k)/4) for k in said_kw),default=0)*1.1
+                       +kbest*1.8
                        - .35*len((dc&OPS)-operations))
                 # Specific tool requested: prefer its implementation over vague "editor" overlap.
-                if operations and (operations&dc)!=operations:
+                if operations and (operations&dc)!=operations and not said_kw:
                     score-=1.4*len(operations-dc)
                 # Within a task family named by the skills themselves, prefer the general
                 # one ("code-reviewer") to a qualified one ("receiving-code-review").
