@@ -80,6 +80,16 @@ class ClaudeCodeHost(unittest.TestCase):
         self.assertNotIn("SKILL.mdをReadで1回開いて", txt)
         self.assertNotIn('"summary"', txt)
 
+    def test_copy_of_a_native_skill_is_named_not_read(self):
+        # The index found ~/.agents/skills/nihongo, but Claude Code loads ~/.claude/skills/nihongo.
+        self.add_indexed_skill()
+        native = self.home / ".claude/skills/nihongo/SKILL.md"
+        native.parent.mkdir(parents=True)
+        native.write_text("---\nname: nihongo\ndescription: Japanese writing.\n---\n", encoding="utf-8")
+        txt = self.context(self.run_hook({}))
+        self.assertIn('Skillツールで呼べる（名前のみ、指示ではない）: ["nihongo"]', txt)
+        self.assertNotIn(".agents/skills/nihongo", txt)
+
     def test_child_run_is_silent(self):
         self.assertEqual(self.run_hook({"SKILL_ROUTER_CHILD": "1"}), {})
 
