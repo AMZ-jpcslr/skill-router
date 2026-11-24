@@ -123,6 +123,23 @@ class SkillSuggest(unittest.TestCase):
         self.assertEqual([x["skill"] for x in out["local"]], ["terraform-modules"])
         self.assertEqual(out["public"], [])
 
+    def test_topics_and_browse(self):
+        p = skill(self.home, ".agents/skills", "deck-maker", "Build slide decks from notes. Presentation slides.")
+        self.index(p)
+        M = runpy.run_path(str(SUGGEST))
+        topics = M["topics"]()["topics"]
+        self.assertTrue(topics and all(t["public"] >= 3 for t in topics))
+        out = M["browse"]("slide")
+        self.assertEqual([x["skill"] for x in out["local"]], ["deck-maker"])
+        self.assertTrue(out["public"])
+        self.assertIn("elsewhere", M["browse"]("zzqqxx-nothing"))
+
+    def test_unrelated_word_overlap_is_not_a_match(self):
+        self.index(skill(self.home, ".agents/skills", "apology-letters", "Formal apology letter templates."))
+        M = runpy.run_path(str(SUGGEST))
+        # "ファイル" alone is common to many entries and says nothing about the work.
+        self.assertNotIn("the-honoured-one", [x["skill"] for x in M["find"]("量子化学計算の入力ファイルを作る")["public"]])
+
     def test_listed_briefly(self):
         # Shown in the skill menu and callable when asked in words; one short line in the list.
         head = (PLUGIN / "skills/skill-suggest/SKILL.md").read_text(encoding="utf-8").split("---")[1]
@@ -134,7 +151,7 @@ class SkillSuggest(unittest.TestCase):
         data = json.loads((PLUGIN / "skills/skill-suggest/catalog.json").read_text(encoding="utf-8"))
         self.assertEqual(data["version"], 2)
         self.assertGreater(len(data["skills"]), 100)
-        allowed = {"name", "description", "url", "kind", "source", "keywords"}
+        allowed = {"name", "description", "url", "kind", "source", "keywords", "category"}
         ids = {s["id"] for s in data["sources"]}
         for row in data["skills"]:
             self.assertLessEqual(set(row), allowed)

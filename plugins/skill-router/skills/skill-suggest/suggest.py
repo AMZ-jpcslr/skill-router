@@ -207,35 +207,79 @@ def catalog(L):
 
 
 def soft_matcher(L, rows, trust=None):
-    """Looser than routing: which one catalogue entry a request is most about.
-    Shared rare words (product, tool, file-format names) and Japanese n-grams, weighted
-    by rarity across the catalogue; one clear best entry or none."""
+    """Looser than routing: which catalogue entry a request is most about.
+    Shared words (product, tool and file-format names) and the Japanese stretches of the
+    request that an entry also says, each weighted by how rare it is across the entries;
+    one clear best entry or none."""
     import math
     O = L["OPEN"]
-    feats = []
+    feats, texts, kws = [], [], []
     df = Counter()
+    strip = lambda w: re.sub(r"[\u3041-\u309f\s]+", "", w)
     for r in rows:
+        kws.append([strip(O["normalize"](k)) for k in r.get("keywords") or []])
+        text = O["normalize"](r["name"].replace("-", " ") + " " + r["description"] + " " + " ".join(r.get("keywords") or []))
         name = O["features"](r["name"].replace("-", " "))
-        meta = O["features"](r["name"].replace("-", " ") + " " + r["description"] + " " + " ".join(r.get("keywords") or []))
-        f = (name[0], meta[0], meta[1])
-        feats.append(f)
-        df.update(f[1] | f[2])
+        meta = O["features"](text)
+        feats.append((name[0], meta[0], meta[1]))
+        texts.append(text)
+        df.update(meta[0])
     size = max(1, len(rows))
-    idf = lambda t: math.log(1 + size / (1 + df[t]))
+    idf = lambda n: math.log(1 + size / (1 + n))
+    seen = {}
+
+    def span_df(span):
+        if span not in seen:
+            seen[span] = sum(span in t for t in texts)
+        return seen[span]
+
+    def spans(query, grams):
+        """Maximal stretches of the request covered by shared n-grams, without the
+        hiragana (particles, endings) at their edges: ファイルを -> ファイル."""
+        out = set()
+        for run in O["JP"].findall(query):
+            cover = [False] * len(run)
+            for n in (2, 3):
+                for i in range(len(run) - n + 1):
+                    if run[i:i + n] in grams:
+                        cover[i:i + n] = [True] * n
+            i = 0
+            while i < len(run):
+                if not cover[i]:
+                    i += 1
+                    continue
+                j = i
+                while j < len(run) and cover[j]:
+                    j += 1
+                piece = re.sub(r"^[\u3041-\u309f]+|[\u3041-\u309f]+$", "", run[i:j])
+                if len(piece) >= 2:
+                    out.add(piece)
+                i = j
+        return out
 
     def match(text, k=1):
         parts = O["work_clauses"](text) or [text]
-        ql, qj, qc = O["features"](" ".join(parts))
+        query = O["normalize"](" ".join(parts))
+        ql, qj, qc = O["features"](query)
         ql = {t for t in ql if not (qc & O["OPS"] and O["features"](t)[2] & O["OPS"])}
         if not ql and not qj:
             return [] if k > 1 else None
         scored = []
-        for r, (nl, dl, dj) in zip(rows, feats):
+        for r, (nl, dl, dj), body, kw in zip(rows, feats, texts, kws):
             lat = ql & dl
-            jp = qj & dj
-            if not lat and len(jp) < 4:
+            grams = qj & dj
+            if not lat and not grams:
                 continue
-            score = sum(idf(t) * (1.6 if t in nl else 1.0) for t in lat) + 0.25 * sum(idf(t) for t in jp)
+            # A stretch counts when it is most of one of the entry's search terms
+            # (スライド of スライド作成), or a longer phrase its description says itself.
+            jp = {p for p in spans(query, grams) if p in body and (
+                  any(p in k and 2 * len(p) >= len(k) for k in kw) or (len(p) >= 3 and p in body[:len(body) - len(" ".join(r.get("keywords") or []))]))}
+            # Operation words alone (作成, 修正) say what to do, not what about.
+            jp = {p for p in jp if not (O["features"](p)[2] and O["features"](p)[2] <= O["OPS"])}
+            if not lat and not jp:
+                continue
+            score = (sum(idf(df[t]) * (1.6 if t in nl else 1.0) for t in lat)
+                     + sum(idf(span_df(p)) for p in jp))
             scored.append((score, -len(r["description"]), r))
         if not scored:
             return [] if k > 1 else None
@@ -474,6 +518,60 @@ def find(description, include_public=True):
     out = {"local": local[:5], "builtin_guides": guides, "public": []}
     if not local:
         out["public"] = [public_row(r, sources) for r in near if r["source"] != "local"][:3]
+    if not (local or guides or out["public"]):
+        out["elsewhere"] = elsewhere(have)
+    return out
+
+
+def elsewhere(installed):
+    """Nothing fits here: point to a wider registry search, run only if the user wants it.
+    Only the search words the user agrees to leave this computer; never history."""
+    return {"find_skills_installed": "find-skills" in installed,
+            "command": "npx skills find <English keywords>", "registry": "https://skills.sh/"}
+
+
+def browse_pool(L):
+    index = L["read_json"](L["INDEX"], {})
+    records = L["one_per_name"](index.get("records", []) if isinstance(index, dict) else [])
+    records = L["with_keywords"](records)
+    rows, sources = catalog(L)
+    have = {r["name"] for r in records}
+    return records, [r for r in rows if r["name"] not in have], sources
+
+
+def topics(min_size=3):
+    """Topics as the catalogue's sources label them; nothing is assigned by this tool."""
+    L, _ = engine()
+    records, rows, sources = browse_pool(L)
+    counts = Counter(r["category"] for r in rows if r.get("category"))
+    return {"topics": [{"topic": t, "public": c} for t, c in counts.most_common() if c >= min_size],
+            "uncategorised": sum(not r.get("category") for r in rows), "installed": len(records),
+            "note": "browse also matches names, descriptions and search terms"}
+
+
+def browse(term, limit=20):
+    """Installed and public skills whose topic, name, description or search terms say TERM."""
+    L, _ = engine()
+    records, rows, sources = browse_pool(L)
+    q = norm(term).strip()
+    if not q:
+        raise ValueError("empty term")
+    def says(r):
+        topic = norm(r.get("category") or "")
+        words = [norm(k) for k in r.get("keywords") or []]
+        if q == topic or q in words:
+            return 0
+        if q in topic or any(q in w or (len(w) >= 2 and w in q) for w in words):
+            return 1
+        return 2 if q in norm(r["name"].replace("-", " ") + " " + r["description"]) else None
+    local = sorted(((says(r), r["name"], r) for r in records if says(r) is not None), key=lambda x: x[:2])
+    public = sorted(((says(r), TRUST.get(sources.get(r["source"], {}).get("trust"), 9), r["name"], r)
+                     for r in rows if says(r) is not None), key=lambda x: x[:3])
+    out = {"term": term, "local": [{"skill": r["name"], "path": r["path"]} for *_, r in local[:limit]],
+           "public": [public_row(r, sources) for *_, r in public[:limit]],
+           "public_total": len(public)}
+    if not local and not public:
+        out["elsewhere"] = elsewhere({r["name"] for r in records})
     return out
 
 
@@ -486,9 +584,20 @@ def main(argv=None):
     f = sub.add_parser("find", help="skills for work you describe")
     f.add_argument("description")
     f.add_argument("--no-public", action="store_true")
+    sub.add_parser("topics", help="topics to browse, as the public sources label them")
+    b = sub.add_parser("browse", help="installed and public skills on a topic or word")
+    b.add_argument("term")
+    b.add_argument("--limit", type=int, choices=range(1, 51), default=20, metavar="1-50")
     a = p.parse_args(argv)
     try:
-        out = analyse(a.days, include_public=not a.no_public) if a.cmd == "report" else find(a.description, not a.no_public)
+        if a.cmd == "report":
+            out = analyse(a.days, include_public=not a.no_public)
+        elif a.cmd == "find":
+            out = find(a.description, not a.no_public)
+        elif a.cmd == "topics":
+            out = topics()
+        else:
+            out = browse(a.term, a.limit)
     except (OSError, ValueError) as e:
         p.exit(2, f"{type(e).__name__}: {e}\n")
     sys.stdout.write(json.dumps(out, ensure_ascii=False, indent=1) + "\n")

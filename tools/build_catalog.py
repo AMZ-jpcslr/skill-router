@@ -69,6 +69,12 @@ def short(text, limit=300):
     return text if len(text) <= limit else text[:limit - 1] + "…"
 
 
+def topic(value):
+    """A source's own category label, normalised; the catalogue adds none of its own."""
+    value = " ".join(str(value or "").replace("_", "-").split()).casefold()
+    return value if 2 <= len(value) <= 40 else None
+
+
 def skill_entry(src, path):
     try:
         name, desc = front_matter(get(RAW.format(path=f"{path}/SKILL.md", **src)))
@@ -105,7 +111,8 @@ def read_source(src):
                 return None
             kw = ", ".join(m.get("keywords") or [])
             return {"name": m.get("name") or p["name"], "description": short(desc + (f" ({kw})" if kw else "")),
-                    "url": WEB.format(path=path, **src), "kind": "plugin"}
+                    "url": WEB.format(path=path, **src), "kind": "plugin",
+                    **({"category": topic(p.get("category") or ui.get("category"))} if topic(p.get("category") or ui.get("category")) else {})}
         with ThreadPoolExecutor(8) as pool:
             return [e for e in pool.map(plugin, json.loads(manifest)["plugins"]) if e]
     if src["adapter"] == "skills-index":
@@ -115,7 +122,8 @@ def read_source(src):
                 continue
             if row.get("name") and row.get("description") and row.get("path"):
                 out.append({"name": row["name"], "description": short(row["description"]),
-                            "url": WEB.format(path=row["path"], **src), "kind": "skill"})
+                            "url": WEB.format(path=row["path"], **src), "kind": "skill",
+                            **({"category": topic(row.get("category"))} if topic(row.get("category")) else {})})
         return out
     raise ValueError(src["adapter"])
 
