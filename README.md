@@ -4,7 +4,7 @@
 
 Skill Routerは、依頼に合うスキルの参照先と作業ガイドを自動で渡す、AIエージェント向けプラグインです。
 
-![Skill Routerの紹介画像](assets/readme-hero-light.png)
+![Skill Routerの紹介画像](assets/readme-hero.jpg)
 
 - **標準では見えないスキルも使える**：Claude Codeが自分では読まない `~/.agents/skills` などのスキルからも、依頼に合うものを渡します。
 - **Claude CodeとCodexの両方で使える**：同じプラグインを両方に導入でき、設定と索引も共通です。
@@ -12,7 +12,7 @@ Skill Routerは、依頼に合うスキルの参照先と作業ガイドを自�
 
 **β.7：Claude Code・Codex Desktop（Windows）**
 
-[β.7のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7) · [紹介動画（21秒・MP4）](assets/skill-router-demo-light.mp4)
+[β.7のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7) · [紹介動画（26秒・MP4）](assets/skill-router-demo.mp4)
 
 ## 1. 導入する
 
