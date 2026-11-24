@@ -1,218 +1,608 @@
-"""Offline, opt-in skill suggestions. No prompt history or skill execution."""
+"""Skill suggestions from how you already use your agent. Local and read-only.
+
+Reads, only when run, the prompt history that Claude Code and Codex already keep on
+this computer, plus their session logs for which skills were actually opened. It runs
+each past request through the router's own matching to see what your installed skills
+cover, then reports settings worth changing, recurring work no installed skill covers,
+and public skills (bundled catalogue: names, descriptions, links) that fit that work.
+Nothing is written except the router's own feature cache; no network; no prompt text
+is printed, only counts and single words.
+"""
 import argparse
+from collections import Counter, defaultdict
+from datetime import datetime, timedelta, timezone
 import json
-import re
-import sqlite3
-import stat
-from contextlib import closing
-from datetime import date, timedelta
+import os
 from pathlib import Path
+import re
+import runpy
+import stat
+import sys
+import unicodedata
+import zlib
 
 HERE = Path(__file__).resolve().parent
-OUTCOMES = ("unknown", "missed", "manual", "used")
-NAME = re.compile(rb"(?m)^name:[ \t]*['\"]?([a-z0-9][a-z0-9-]{0,79})['\"]?[ \t]*\r?$")
-DEFAULT_ROOTS = (Path.home()/".agents"/"skills", Path.home()/".codex"/"skills")
-NOFOLLOW = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+CORE = HERE.parent / "skill-router-settings"
+HOME = Path.home()
+CLAUDE_HOME = Path(os.environ.get("CLAUDE_CONFIG_DIR") or HOME / ".claude")
+CODEX_HOME = Path(os.environ.get("CODEX_HOME") or HOME / ".codex")
+NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,79}\Z")
+SKILL_PATH = re.compile(r"[/\\]([a-z0-9][a-z0-9-]{0,79})[/\\]+SKILL\.md\b", re.I)
+INVOKED = re.compile(r"(?:^|(?<=\s))[/$](?:[a-z0-9-]+:)?([a-z0-9][a-z0-9-]{1,79})(?![a-z0-9-])", re.I)
+TERM = re.compile(r"[a-z][a-z0-9+#.-]{2,}|[ァ-ヿー]{3,}|[㐀-鿿]{2,6}")
+OWN = {"skill-suggest", "skill-router-settings"}
+TRUST = {"official": 0, "curated": 1, "community": 2}
+MAX_PROMPTS = 5000
+MAX_PROMPT_CHARS = 4000
+MAX_LOG_BYTES = 400_000_000
+# Claude Code lists skills with their descriptions within a character budget; this is
+# its documented fallback, overridable as it is in Claude Code itself.
+LIST_BUDGET = int(os.environ.get("SLASH_COMMAND_TOOL_CHAR_BUDGET") or 8000)
 
 
-def catalog():
-    raw = json.loads((HERE/"catalog.json").read_text(encoding="utf-8"))
-    for entry in raw["skills"]:
-        names = [entry["id"], *entry["aliases"]]
-        if not all(NAME.fullmatch(("name: "+n).encode("ascii")) for n in names):
-            raise ValueError("invalid skill identifier")
-    return raw
-
-
-def safe_mode(p):
+def plain_file(p):
     try:
         st = p.lstat()
-        if stat.S_ISLNK(st.st_mode) or getattr(st, "st_file_attributes", 0) & NOFOLLOW:
-            return 0
-        return st.st_mode
     except OSError:
-        return 0
+        return False
+    return stat.S_ISREG(st.st_mode) and not getattr(st, "st_file_attributes", 0) & 0x400
 
 
-def has_plain_parents(p):
-    return all(stat.S_ISDIR(safe_mode(d)) for d in p.parents)
+def norm(s):
+    return unicodedata.normalize("NFKC", s).casefold()
 
 
-def inventory(roots, entries):
-    """Read bounded local front matter only; never search arbitrary directories."""
-    installed = set()
-    scanned, skipped = 0, 0
-    for root in dict.fromkeys(p.expanduser().absolute() for p in roots):
-        if not stat.S_ISDIR(safe_mode(root)) or not has_plain_parents(root):
-            skipped += 1
+def jsonl(path, byte_budget):
+    """Yield (line, obj) from a JSON-lines file; stop at the shared byte budget."""
+    if not plain_file(path):
+        return
+    try:
+        with path.open("rb") as f:
+            for raw in f:
+                byte_budget[0] -= len(raw)
+                if byte_budget[0] < 0:
+                    return
+                yield raw
+    except OSError:
+        return
+
+
+def when(value):
+    """Epoch seconds/milliseconds or ISO-8601 -> aware datetime, else None."""
+    try:
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(value / 1000 if value > 1e11 else value, timezone.utc)
+        if isinstance(value, str):
+            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except (ValueError, OSError, OverflowError):
+        return None
+    return None
+
+
+def text_of(content):
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return "\n".join(c.get("text", "") for c in content if isinstance(c, dict) and c.get("type") in ("text", "input_text"))
+    return ""
+
+
+def recent_files(root, pattern, since):
+    try:
+        files = [p for p in root.glob(pattern) if plain_file(p) and p.stat().st_mtime >= since.timestamp()]
+    except OSError:
+        return []
+    return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
+
+
+def read_prompts(since, budget):
+    """[(host, datetime, project or None, text)] from the hosts' own prompt history."""
+    out = []
+    for raw in jsonl(CLAUDE_HOME / "history.jsonl", budget):
+        try:
+            o = json.loads(raw)
+            t = when(o.get("timestamp"))
+            if t and t >= since and isinstance(o.get("display"), str):
+                out.append(("claude-code", t, o.get("project"), o["display"]))
+        except (ValueError, AttributeError):
             continue
-        scanned += 1
-        for entry in entries:
-            for ident in (entry["id"], *entry["aliases"]):
-                path = root/ident/"SKILL.md"
-                if not stat.S_ISDIR(safe_mode(path.parent)) or not stat.S_ISREG(safe_mode(path)):
+    if not out:
+        # Older or trimmed installs: the session transcripts hold the user's turns too.
+        for path in recent_files(CLAUDE_HOME / "projects", "*/*.jsonl", since):
+            for raw in jsonl(path, budget):
+                if b'"type":"user"' not in raw.replace(b" ", b""):
                     continue
                 try:
-                    with path.open("rb") as f:
-                        opening = f.readline(32).rstrip(b"\r\n").removeprefix(b"\xef\xbb\xbf")
-                        if opening != b"---":
-                            continue
-                        # Read only through the closing delimiter, with a hard byte budget.
-                        lines, limit = [], 8192
-                        while limit > 0:
-                            line = f.readline(limit)
-                            if not line:
-                                break
-                            if line.rstrip(b"\r\n") == b"---":
-                                if NAME.findall(b"".join(lines)) == [ident.encode("ascii")]:
-                                    installed.add(ident)
-                                break
-                            limit -= len(line)
-                            lines.append(line)
-                except OSError:
+                    o = json.loads(raw)
+                    t = when(o.get("timestamp"))
+                    text = text_of((o.get("message") or {}).get("content"))
+                    if (o.get("type") == "user" and not o.get("isMeta") and t and t >= since
+                            and text.strip() and not text.lstrip().startswith("<")):
+                        out.append(("claude-code", t, o.get("cwd"), text))
+                except (ValueError, AttributeError):
                     continue
-    return installed, {"scanned_roots": scanned, "unavailable_roots": skipped}
-
-
-def parse_day(value):
-    day = date.fromisoformat(value)
-    if day.isoformat() != value:
-        raise ValueError("expected date YYYY-MM-DD")
-    return day
-
-
-def record(path, tasks, outcome, today):
-    path = path.expanduser().absolute()
-    if path.is_symlink() or not has_plain_parents(path):
-        raise ValueError("history must be under an existing ordinary directory")
-    if path.exists() and not stat.S_ISREG(safe_mode(path)):
-        raise ValueError("history must be an ordinary file")
-    with closing(sqlite3.connect(path)) as conn, conn:
-        conn.execute("""CREATE TABLE IF NOT EXISTS observations (
-            task TEXT NOT NULL, day TEXT NOT NULL, outcome TEXT NOT NULL,
-            PRIMARY KEY(task, day, outcome))""")
-        conn.execute("DELETE FROM observations WHERE day < ?", ((today-timedelta(days=59)).isoformat(),))
-        conn.executemany("INSERT OR IGNORE INTO observations VALUES(?,?,?)",
-                         [(task, today.isoformat(), outcome) for task in set(tasks)])
-
-
-def read_history(path, today, tasks):
-    path = path.expanduser().absolute()
-    if not path.exists() and not path.is_symlink():
-        return []
-    if not stat.S_ISREG(safe_mode(path)) or not has_plain_parents(path):
-        raise ValueError("history must be an ordinary file")
-    with closing(sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)) as conn:
-        records = conn.execute("SELECT task,day,outcome FROM observations WHERE day BETWEEN ? AND ?",
-                               ((today-timedelta(days=59)).isoformat(),today.isoformat()))
-        return [(task, parse_day(day), outcome) for task,day,outcome in records
-                if task in tasks and outcome in OUTCOMES]
-
-
-def suggest(data, installed, observations, today, current=None, limit=3, external=False):
-    grouped = {task: {o:set() for o in OUTCOMES} for task in data["tasks"]}
-    for task, day, outcome in observations:
-        if task in grouped and outcome in OUTCOMES and 0 <= (today-day).days < 60:
-            grouped[task][outcome].add(day)
-    ranked = []
-    for task, stats in grouped.items():
-        days = set().union(*stats.values())
-        gaps = stats["missed"] | stats["manual"]
-        if current is not None and task != current:
+    codex = []
+    for raw in jsonl(CODEX_HOME / "history.jsonl", budget):
+        try:
+            o = json.loads(raw)
+            t = when(o.get("ts"))
+            if t and t >= since and isinstance(o.get("text"), str):
+                codex.append(("codex", t, None, o["text"]))
+        except (ValueError, AttributeError):
             continue
-        if current is None:
-            if len(days) < 2:
+    if not codex:
+        # history.persistence may be off; the session logs still hold the user's turns.
+        for path in recent_files(CODEX_HOME / "sessions", "**/*.jsonl", since):
+            for raw in jsonl(path, budget):
+                if b'"user_message"' not in raw:
+                    continue
+                try:
+                    o = json.loads(raw)
+                    p = o.get("payload") or {}
+                    t = when(o.get("timestamp"))
+                    if p.get("type") == "user_message" and t and t >= since and isinstance(p.get("message"), str):
+                        codex.append(("codex", t, None, p["message"]))
+                except (ValueError, AttributeError):
+                    continue
+    out += codex
+    seen, unique = set(), []
+    for host, t, project, text in sorted(out, key=lambda x: x[1], reverse=True):
+        key = (t.date(), text.strip())
+        if text.strip() and key not in seen:
+            seen.add(key)
+            unique.append((host, t, project, text[:MAX_PROMPT_CHARS]))
+    return unique[:MAX_PROMPTS]
+
+
+def tool_calls(node):
+    """Tool-call nodes in one log record, for both hosts' log formats."""
+    stack = [node]
+    while stack:
+        x = stack.pop()
+        if isinstance(x, dict):
+            if x.get("type") in ("tool_use", "function_call", "custom_tool_call", "local_shell_call"):
+                yield x
                 continue
-            if len(stats["used"]) >= 2 and not gaps:
+            stack.extend(x.values())
+        elif isinstance(x, list):
+            stack.extend(x)
+
+
+def read_skill_use(since, budget):
+    """{skill name: set(days)} for skills an agent opened or invoked (not merely listed)."""
+    used = defaultdict(set)
+    logs = recent_files(CLAUDE_HOME / "projects", "*/*.jsonl", since) + recent_files(CODEX_HOME / "sessions", "**/*.jsonl", since)
+    for path in logs:
+        for raw in jsonl(path, budget):
+            if b"SKILL.md" not in raw and b'"Skill"' not in raw:
                 continue
-        weighted_days = sum(2 if (today-day).days < 14 else 1 for day in days)
-        ranked.append((-(weighted_days + len(gaps)*2),task,len(days),len(gaps)))
-    output, seen = [], set()
-    for _,task,days,gaps in sorted(ranked):
-        choices = []
-        for entry in data["skills"]:
-            if task not in entry["fit"]:
+            try:
+                o = json.loads(raw)
+            except ValueError:
                 continue
-            local = next((name for name in (entry["id"],*entry["aliases"]) if name in installed),None)
-            if not local and not (external and entry.get("source")):
+            t = when(o.get("timestamp"))
+            if not t or t < since:
                 continue
-            choices.append((not bool(local),-entry["fit"][task],entry["id"],entry,local))
-        for _,_,ident,entry,local in sorted(choices):
-            if ident in seen:
+            for call in tool_calls(o):
+                args = call.get("input") or call.get("arguments") or call.get("action") or ""
+                if call.get("name") == "Skill" and isinstance(args, dict) and isinstance(args.get("skill"), str):
+                    used[args["skill"].split(":")[-1]].add(t.date())
+                for m in SKILL_PATH.finditer(args if isinstance(args, str) else json.dumps(args)):
+                    used[m.group(1).lower()].add(t.date())
+    return used
+
+
+def engine():
+    os.environ.setdefault("SKILL_ROUTER_STATE_DIR", str(HOME / ".skill-router-beta"))
+    L = runpy.run_path(str(CORE / "local_index.py"))
+    R = runpy.run_path(str(CORE / "router.py"))
+    return L, R
+
+
+def catalog(L):
+    raw = json.loads((HERE / "catalog.json").read_text(encoding="utf-8"))
+    sources = {s["id"]: s for s in raw["sources"]}
+    rows = [dict(r, path=r["url"], stamp=[zlib.crc32(r["description"].encode())]) for r in raw["skills"] if NAME.fullmatch(r.get("name", ""))]
+    return rows, sources
+
+
+def soft_matcher(L, rows, trust=None):
+    """Looser than routing: which catalogue entry a request is most about.
+    Shared words (product, tool and file-format names) and the Japanese stretches of the
+    request that an entry also says, each weighted by how rare it is across the entries;
+    one clear best entry or none."""
+    import math
+    O = L["OPEN"]
+    feats, texts, kws = [], [], []
+    df = Counter()
+    strip = lambda w: re.sub(r"[\u3041-\u309f\s]+", "", w)
+    for r in rows:
+        kws.append([strip(O["normalize"](k)) for k in r.get("keywords") or []])
+        text = O["normalize"](r["name"].replace("-", " ") + " " + r["description"] + " " + " ".join(r.get("keywords") or []))
+        name = O["features"](r["name"].replace("-", " "))
+        meta = O["features"](text)
+        feats.append((name[0], meta[0], meta[1]))
+        texts.append(text)
+        df.update(meta[0])
+    size = max(1, len(rows))
+    idf = lambda n: math.log(1 + size / (1 + n))
+    seen = {}
+
+    def span_df(span):
+        if span not in seen:
+            seen[span] = sum(span in t for t in texts)
+        return seen[span]
+
+    def spans(query, grams):
+        """Maximal stretches of the request covered by shared n-grams, without the
+        hiragana (particles, endings) at their edges: ファイルを -> ファイル."""
+        out = set()
+        for run in O["JP"].findall(query):
+            cover = [False] * len(run)
+            for n in (2, 3):
+                for i in range(len(run) - n + 1):
+                    if run[i:i + n] in grams:
+                        cover[i:i + n] = [True] * n
+            i = 0
+            while i < len(run):
+                if not cover[i]:
+                    i += 1
+                    continue
+                j = i
+                while j < len(run) and cover[j]:
+                    j += 1
+                piece = re.sub(r"^[\u3041-\u309f]+|[\u3041-\u309f]+$", "", run[i:j])
+                if len(piece) >= 2:
+                    out.add(piece)
+                i = j
+        return out
+
+    def match(text, k=1):
+        parts = O["work_clauses"](text) or [text]
+        query = O["normalize"](" ".join(parts))
+        ql, qj, qc = O["features"](query)
+        ql = {t for t in ql if not (qc & O["OPS"] and O["features"](t)[2] & O["OPS"])}
+        if not ql and not qj:
+            return [] if k > 1 else None
+        scored = []
+        for r, (nl, dl, dj), body, kw in zip(rows, feats, texts, kws):
+            lat = ql & dl
+            grams = qj & dj
+            if not lat and not grams:
                 continue
-            if len(output) >= limit:
-                return output
-            output.append({
-                "skill":local or ident,
-                "location": "local" if local else "public_candidate",
-                "task":task, "task_label":data["tasks"][task],
-                "observed_days":days, "manual_or_missed_days":gaps,
-                "fit":entry["reason"], "source":entry.get("source") if not local else None,
-            })
-            seen.add(ident)
-            if current is None:
+            # A stretch counts when it is most of one of the entry's search terms
+            # (スライド of スライド作成), or a longer phrase its description says itself.
+            jp = {p for p in spans(query, grams) if p in body and (
+                  any(p in k and 2 * len(p) >= len(k) for k in kw) or (len(p) >= 3 and p in body[:len(body) - len(" ".join(r.get("keywords") or []))]))}
+            # Operation words alone (作成, 修正) say what to do, not what about.
+            jp = {p for p in jp if not (O["features"](p)[2] and O["features"](p)[2] <= O["OPS"])}
+            if not lat and not jp:
+                continue
+            score = (sum(idf(df[t]) * (1.6 if t in nl else 1.0) for t in lat)
+                     + sum(idf(span_df(p)) for p in jp))
+            scored.append((score, -len(r["description"]), r))
+        if not scored:
+            return [] if k > 1 else None
+        scored.sort(key=lambda x: (-x[0], x[1], x[2]["name"]))
+        top = scored[0][0]
+        if k > 1:
+            return [r for sc, _, r in scored[:k] if sc >= 4.0 and sc >= top * 0.75]
+        if top < 4.0:
+            return None
+        near = [r for sc, _, r in scored if sc > top * 0.9]
+        if len(near) == 1:
+            return near[0]
+        # Near-equal public entries: an official or curated source settles it; a tie
+        # within the same tier, or with an installed skill, stays unresolved.
+        tiers = sorted(near, key=lambda r: TRUST.get((trust or {}).get(r.get("source")), 9))
+        a, b = (TRUST.get((trust or {}).get(r.get("source")), 9) for r in tiers[:2])
+        return tiers[0] if a < b and all(r.get("source") != "local" for r in near) else None
+    return match
+
+
+def without_keywords(pool):
+    return [r if r["source"] == "local" else {k: v for k, v in r.items() if k != "keywords"} for r in pool]
+
+
+def public_row(r, sources, **extra):
+    src = sources.get(r["source"], {})
+    return {"skill": r["name"], "kind": r["kind"], **extra, "url": r["url"], "source": r["source"],
+            "trust": src.get("trust"), "description": r["description"],
+            "install": {k: v.format(url=r["url"]) for k, v in (src.get("install") or {}).items()}}
+
+
+def terms(text, drop=()):
+    """Single words of a request (Latin words, katakana runs, short kanji runs)."""
+    found = set()
+    for t in TERM.findall(norm(text)):
+        t = t.strip(".-")
+        if len(t) >= 2 and t not in drop:
+            found.add(t)
+    return found
+
+
+def stop_terms(L):
+    O = L["OPEN"]
+    return set(O["GENERIC"]) | {"the", "and", "this", "that", "with", "for", "please", "してください", "ください", "お願い"}
+
+
+def analyse(days=60, today=None, include_public=True):
+    L, R = engine()
+    today = today or datetime.now(timezone.utc)
+    since = today - timedelta(days=days)
+    budget = [MAX_LOG_BYTES]
+    prompts = read_prompts(since, budget)
+    used = read_skill_use(since, budget)
+    index = L["read_json"](L["INDEX"], {})
+    all_records = index.get("records", []) if isinstance(index, dict) else []
+    records = L["with_keywords"](L["one_per_name"](all_records))
+    prepared = L["prepared_features"](records)
+    names = {r["name"] for r in all_records}
+    work_clauses = L["OPEN"]["work_clauses"]
+    stop = stop_terms(L)
+
+    matched = defaultdict(set)          # skill -> days the router would offer it
+    named = defaultdict(list)           # skill -> [(day, routed?, text)] named by hand
+    uncovered = []                      # (day, text) work with no local skill or guide
+    projects = Counter()
+    work = 0
+    hosts = Counter()
+    for host, t, project, text in prompts:
+        hosts[host] += 1
+        day = t.date()
+        called = {m.group(1).lower() for m in INVOKED.finditer(text)} & names
+        bare = INVOKED.sub(" ", text) if called else text
+        parts = work_clauses(bare)
+        if not parts and not called:
+            continue
+        work += 1
+        if project:
+            projects[project] += 1
+        guides = R["narrow_pick"]("。".join(parts)) if parts else []
+        offered = set()
+        if parts:
+            try:
+                offered = {row["name"] for _, row in L["rank"](bare, records, guides, None, prepared)}
+            except (ValueError, KeyError, TypeError, RuntimeError):
+                offered = set()
+        for n in offered:
+            matched[n].add(day)
+        for n in called - OWN:
+            named[n].append((day, n in offered, bare))
+        if parts and not offered and not guides and not called:
+            uncovered.append((day, bare))
+
+    report = {"period_days": days, "prompts_read": len(prompts), "work_requests": work,
+              "hosts": dict(hosts), "installed_skills": len(names),
+              "settings": [], "gaps": [], "public": []}
+    if not prompts:
+        report["note"] = "no_history"
+    settings = report["settings"]
+
+    if not all_records:
+        settings.append({"kind": "index_missing", "action": "router.py index refresh"})
+
+    # 1. Skills named by hand that the router would not have offered: the words the
+    #    user actually says are the ones their description lacks.
+    for n, rows in sorted(named.items(), key=lambda kv: -len({d for d, *_ in kv[1]})):
+        missed = [r for r in rows if not r[1]]
+        if len({d for d, *_ in rows}) < 2 or not missed:
+            continue
+        row = next((r for r in records if r["name"] == n), None)
+        desc = norm((row or {}).get("description", "") + " " + " ".join((row or {}).get("keywords", [])) + " " + n)
+        counts = Counter()
+        for _, _, text in missed:
+            counts.update(w for w in terms(text, stop) if w not in desc)
+        words = [w for w, c in counts.most_common(8) if c >= 2][:5]
+        settings.append({"kind": "named_by_hand", "skill": n, "days": len({d for d, *_ in rows}),
+                         "router_offered_days": len({d for d, ok, _ in rows if ok}),
+                         "add_to_description": words, "path": (row or {}).get("path")})
+
+    # 2. Claude Code lists ~/.claude/skills itself, within a character budget. Skills
+    #    there that went unused cost that budget every turn; the router still finds them
+    #    from ~/.agents/skills.
+    native_root = (CLAUDE_HOME / "skills").as_posix().casefold().rstrip("/") + "/"
+    native = [r for r in all_records if Path(r["path"]).as_posix().casefold().startswith(native_root)]
+    cost = sum(len(r["name"]) + len(r["description"]) + 4 for r in native)
+    if native and (cost > LIST_BUDGET * 0.5 or len(native) > 40):
+        idle = [r for r in native if r["name"] not in used and r["name"] not in matched and r["name"] not in named]
+        idle.sort(key=lambda r: -len(r["description"]))
+        settings.append({"kind": "claude_list_budget", "native_skills": len(native), "listed_chars": cost,
+                         "budget_chars": LIST_BUDGET, "unused": [{"skill": r["name"], "chars": len(r["description"])} for r in idle[:10]],
+                         "unused_total": len(idle), "move_to": (HOME / ".agents" / "skills").as_posix()})
+
+    # 3. The same name in several places: only one copy is loaded.
+    by_name = defaultdict(list)
+    for r in all_records:
+        by_name[r["name"]].append(r)
+    dups = [{"skill": n, "paths": [r["path"] for r in rs], "same_size": len({r["stamp"][1] for r in rs}) == 1}
+            for n, rs in sorted(by_name.items()) if len(rs) > 1 and n not in OWN]
+    if dups:
+        settings.append({"kind": "duplicates", "count": len(dups), "items": dups[:10]})
+
+    # 4. Skills nothing used, matched or named during the period.
+    idle = sorted(n for n in names - OWN if n not in used and n not in matched and n not in named)
+    if names and work >= 20:
+        settings.append({"kind": "unused", "count": len(idle), "of": len(names - OWN), "examples": idle[:10]})
+
+    # 5. Japanese requests against English-only descriptions: index-time keywords help.
+    jp_share = sum(bool(re.search(r"[぀-ヿ]", t)) for *_, t in prompts) / max(1, len(prompts))
+    with_kw = sum(bool(r.get("keywords")) for r in records)
+    if jp_share >= 0.3 and records and with_kw < len(records) * 0.5:
+        settings.append({"kind": "keywords_missing", "japanese_share": round(jp_share, 2),
+                         "skills_with_keywords": with_kw, "action": "router.py index refresh --keywords"})
+
+    # 6. Work done in folders the router is switched off for (Claude Code records the folder).
+    try:
+        conf = R["read_config"](R["STATE"])
+        off = Counter()
+        for project, c in projects.items():
+            kind, root = R["scope"](project)
+            if kind == "project" and not R["active"](kind, root, conf):
+                off[Path(project).name or project] += c
+        if sum(off.values()) >= 5 and sum(off.values()) >= 0.3 * sum(projects.values()):
+            settings.append({"kind": "router_off_for_folders", "requests": sum(off.values()),
+                             "folders": [n for n, _ in off.most_common(5)], "action": "router.py all-projects on"})
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+
+    # Recurring work with nothing installed for it; matched against public skills
+    # with the very same retrieval the router uses for local ones.
+    # Requests the router passed over are matched again, more loosely, against installed
+    # and public skills together: a public skill is suggested only where no installed one
+    # comes close, and an installed one that does is a description worth improving.
+    public_days = defaultdict(set)
+    missed_local = defaultdict(set)
+    leftover = []
+    if uncovered:
+        pub_rows, sources = catalog(L) if include_public else ([], {})
+        pool = [dict(r, source="local") for r in records] + [r for r in pub_rows if r["name"] not in names]
+        trust = {k: v.get("trust") for k, v in sources.items()}
+        match = soft_matcher(L, pool, trust)
+        # Installed skills are compared on name and description alone, as are the public
+        # ones: the catalogue's search terms must not let a public skill outrank one the
+        # user already has. They only help find a public skill where nothing is installed.
+        fair = soft_matcher(L, without_keywords(pool), trust)
+        for day, text in uncovered:
+            near = fair(text, 3)
+            local = [r for r in near if r["source"] == "local"]
+            if local:
+                for r in local[:1]:
+                    missed_local[r["name"]].add(day)
+                continue
+            best = match(text)
+            if best and best["source"] != "local":
+                public_days[best["path"]].add(day)
+            else:
+                leftover.append((day, text))
+        by_path = {r["path"]: r for r in pool}
+        ranked = sorted(public_days.items(), key=lambda kv: (-len(kv[1]), by_path[kv[0]]["name"]))
+        for path, ds in ranked:
+            if len(ds) < 2:
+                continue
+            report["public"].append(public_row(by_path[path], sources, days=len(ds)))
+            if len(report["public"]) >= 8:
                 break
-    return output
+    near_missed = [{"skill": n, "days": len(d)} for n, d in sorted(missed_local.items(), key=lambda kv: (-len(kv[1]), kv[0])) if len(d) >= 2]
+    if near_missed:
+        settings.insert(0, {"kind": "installed_but_not_selected", "items": near_missed[:10],
+                            "action": "router.py index refresh --keywords" if not any(r.get("keywords") for r in records) else None})
+    term_days = defaultdict(set)
+    for day, text in leftover:
+        for w in terms(text, stop):
+            if not (L["ACTION"].search(w) or L["OPEN"]["REQUEST"].search(w) or L["OPEN"]["features"](w)[2] & L["OPEN"]["OPS"]):
+                term_days[w].add(day)
+    report["gaps"] = [{"term": w, "days": len(d)} for w, d in sorted(term_days.items(), key=lambda kv: (-len(kv[1]), kv[0])) if len(d) >= 3][:10]
+    report["uncovered_requests"] = len(uncovered)
+    return report
+
+
+def find(description, include_public=True):
+    """One-shot: which installed or public skill fits work described in words."""
+    L, R = engine()
+    index = L["read_json"](L["INDEX"], {})
+    records = L["with_keywords"](L["one_per_name"](index.get("records", []) if isinstance(index, dict) else []))
+    guides = R["narrow_pick"]("。".join(L["OPEN"]["work_clauses"](description)))
+    local = [{"skill": r["name"], "path": r["path"], "basis": "router"}
+             for _, r in L["rank"](description, records, guides, None, L["prepared_features"](records))]
+    rows, sources = catalog(L) if include_public else ([], {})
+    have = {r["name"] for r in records}
+    pool = [dict(r, source="local") for r in records] + [r for r in rows if r["name"] not in have]
+    trust = {k: v.get("trust") for k, v in sources.items()}
+    near = soft_matcher(L, without_keywords(pool), trust)(description, 5)
+    if not any(r["source"] == "local" for r in near):
+        near = soft_matcher(L, pool, trust)(description, 5)
+    known = {x["skill"] for x in local}
+    local += [{"skill": r["name"], "path": r["path"], "basis": "description_overlap"}
+              for r in near if r["source"] == "local" and r["name"] not in known]
+    out = {"local": local[:5], "builtin_guides": guides, "public": []}
+    if not local:
+        out["public"] = [public_row(r, sources) for r in near if r["source"] != "local"][:3]
+    if not (local or guides or out["public"]):
+        out["elsewhere"] = elsewhere(have)
+    return out
+
+
+def elsewhere(installed):
+    """Nothing fits here: point to a wider registry search, run only if the user wants it.
+    Only the search words the user agrees to leave this computer; never history."""
+    return {"find_skills_installed": "find-skills" in installed,
+            "command": "npx skills find <English keywords>", "registry": "https://skills.sh/"}
+
+
+def browse_pool(L):
+    index = L["read_json"](L["INDEX"], {})
+    records = L["one_per_name"](index.get("records", []) if isinstance(index, dict) else [])
+    records = L["with_keywords"](records)
+    rows, sources = catalog(L)
+    have = {r["name"] for r in records}
+    return records, [r for r in rows if r["name"] not in have], sources
+
+
+def topics(min_size=3):
+    """Topics as the catalogue's sources label them; nothing is assigned by this tool."""
+    L, _ = engine()
+    records, rows, sources = browse_pool(L)
+    counts = Counter(r["category"] for r in rows if r.get("category"))
+    return {"topics": [{"topic": t, "public": c} for t, c in counts.most_common() if c >= min_size],
+            "uncategorised": sum(not r.get("category") for r in rows), "installed": len(records),
+            "note": "browse also matches names, descriptions and search terms"}
+
+
+def browse(term, limit=20):
+    """Installed and public skills whose topic, name, description or search terms say TERM."""
+    L, _ = engine()
+    records, rows, sources = browse_pool(L)
+    q = norm(term).strip()
+    if not q:
+        raise ValueError("empty term")
+    def says(r):
+        topic = norm(r.get("category") or "")
+        words = [norm(k) for k in r.get("keywords") or []]
+        if q == topic or q in words:
+            return 0
+        if q in topic or any(q in w or (len(w) >= 2 and w in q) for w in words):
+            return 1
+        return 2 if q in norm(r["name"].replace("-", " ") + " " + r["description"]) else None
+    local = sorted(((says(r), r["name"], r) for r in records if says(r) is not None), key=lambda x: x[:2])
+    public = sorted(((says(r), TRUST.get(sources.get(r["source"], {}).get("trust"), 9), r["name"], r)
+                     for r in rows if says(r) is not None), key=lambda x: x[:3])
+    out = {"term": term, "local": [{"skill": r["name"], "path": r["path"]} for *_, r in local[:limit]],
+           "public": [public_row(r, sources) for *_, r in public[:limit]],
+           "public_total": len(public)}
+    if not local and not public:
+        out["elsewhere"] = elsewhere({r["name"] for r in records})
+    return out
 
 
 def main(argv=None):
-    data = catalog()
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--history", type=Path, default=Path.home()/".skill-suggest-history.sqlite3")
-    sub = parser.add_subparsers(dest="cmd", required=True)
-    sub.add_parser("tasks")
-    log = sub.add_parser("record", help="explicit opt-in for the given task labels only")
-    log.add_argument("--task", action="append", required=True, choices=tuple(data["tasks"]))
-    log.add_argument("--outcome", choices=OUTCOMES, default="unknown")
-    find = sub.add_parser("recommend")
-    find.add_argument("--task", choices=tuple(data["tasks"]), help="one-shot; does not open history")
-    find.add_argument("--root", type=Path, action="append", help="each root contains skill directories; replaces default roots")
-    find.add_argument("--include-public",action="store_true",help="also list curated public candidates; never connects to the network")
-    find.add_argument("--limit",type=int, choices=range(1,11),default=3)
-    find.add_argument("--demo", action="store_true", help="synthetic history only; no personal history read or write")
-    find.add_argument("--json",action="store_true")
-    args=parser.parse_args(argv)
-    today=date.today()
+    p = argparse.ArgumentParser(description=__doc__)
+    sub = p.add_subparsers(dest="cmd", required=True)
+    rep = sub.add_parser("report", help="settings, gaps and public skills from your own history")
+    rep.add_argument("--days", type=int, choices=range(7, 181), default=60, metavar="7-180")
+    rep.add_argument("--no-public", action="store_true")
+    f = sub.add_parser("find", help="skills for work you describe")
+    f.add_argument("description")
+    f.add_argument("--no-public", action="store_true")
+    sub.add_parser("topics", help="topics to browse, as the public sources label them")
+    b = sub.add_parser("browse", help="installed and public skills on a topic or word")
+    b.add_argument("term")
+    b.add_argument("--limit", type=int, choices=range(1, 51), default=20, metavar="1-50")
+    a = p.parse_args(argv)
     try:
-        if args.cmd=="tasks":
-            for key, label in data["tasks"].items():
-                print(f"{key}: {label}")
-            return 0
-        if args.cmd=="record":
-            record(args.history,args.task,args.outcome,today)
-            print("作業分類・日付・指定された利用状況だけ保存しました。")
-            return 0
-        if args.demo and args.task:
-            parser.error("--demo and --task cannot be combined")
-        if args.demo:
-            observations=[(task,today-timedelta(days=i),outcome)
-                          for task,outcome,count in (("regression-test","manual",3),("spreadsheet","missed",2),("pdf","unknown",1))
-                          for i in range(count)]
-        elif args.task:
-            observations=[]
+        if a.cmd == "report":
+            out = analyse(a.days, include_public=not a.no_public)
+        elif a.cmd == "find":
+            out = find(a.description, not a.no_public)
+        elif a.cmd == "topics":
+            out = topics()
         else:
-            observations=read_history(args.history,today,data["tasks"])
-        installed, roots = inventory(args.root or DEFAULT_ROOTS,data["skills"])
-        rows=suggest(data,installed,observations,today,args.task,args.limit,args.include_public)
-        if args.json:
-            print(json.dumps({"demo":args.demo,"roots":roots,"recommendations":rows},ensure_ascii=False,indent=2))
-        else:
-            if args.demo:
-                print("合成デモ（実際の利用履歴ではありません）")
-            if not rows:
-                print("おすすめなし。作業を直接指定するか、別日に繰り返した作業を記録してください。")
-            for row in rows:
-                label="手元で確認" if row["location"]=="local" else "公開候補・導入状況未確認"
-                why=f"／直近60日で{row['observed_days']}日" if row["observed_days"] else ""
-                if row["manual_or_missed_days"]:
-                    why+=f"（手動指定・未適用を記録: {row['manual_or_missed_days']}日）"
-                print(f"- {row['skill']} [{label}] {row['task_label']}{why}: {row['fit']}")
-                if row["source"]:
-                    print("  "+row["source"])
-        return 0
-    except (OSError, ValueError, sqlite3.Error) as e:
-        parser.exit(2,f"入力またはローカルの記録を確認してください ({type(e).__name__})。\n")
+            out = browse(a.term, a.limit)
+    except (OSError, ValueError) as e:
+        p.exit(2, f"{type(e).__name__}: {e}\n")
+    sys.stdout.write(json.dumps(out, ensure_ascii=False, indent=1) + "\n")
+    return 0
 
 
-if __name__=="__main__":
+if __name__ == "__main__":
     raise SystemExit(main())
