@@ -104,6 +104,29 @@ class IndexCache(unittest.TestCase):
         self.assertEqual(O["keyword_cover"](parts, frozenset(), "memoチームの今週の報告を書いて", O["features"]("memoチームの今週の報告を書いて")[1], frozenset()), 0.)
         self.assertEqual(O["keyword_cover"](parts, frozenset(), "チームへの連絡を書いて", O["features"]("チームへの連絡を書いて")[1], frozenset()), 1.)
 
+    def with_keywords(self, keywords):
+        return [dict(r, keywords=keywords.get(r["name"], [])) for r in ROWS]
+
+    def test_keyword_needs_what_it_acts_on(self):
+        # "es作成" names an ES; a Dockerfile request only shares the action.
+        rows = self.with_keywords({"apology-letters": ["es作成", "書き直し"]})
+        self.assertNotIn("apology-letters", self.names("このNode.jsアプリのDockerfileを作成して。", rows))
+        # An action alone does not name the task either.
+        self.assertNotIn("apology-letters", self.names("この説明文を書き直して。", rows))
+        self.assertEqual(self.names("ESを作成して。", rows), ["apology-letters"])
+
+    def test_keyword_subject(self):
+        subject = self.L["OPEN"]["keyword_subject"]
+        self.assertEqual(subject("スライド作成"), ("スライド",))
+        self.assertEqual(subject("es作成"), ("es",))
+        # An action alone counts only as that operation ("翻訳" for a translation request).
+        self.assertEqual(subject("翻訳"), ())
+
+    def test_urls_and_save_paths_do_not_pick_a_skill(self):
+        rows = ROWS + [row("github-docs-sync", "Sync docs to a GitHub repository over https, for com domains.", 500)]
+        self.assertEqual(self.names("紹介文の最後に https://github.com/example/tools を入れて。", rows), [])
+        self.assertEqual(self.names("C:\\Users\\me\\github\\docs-sync-com に保存して。", rows), [])
+
 
 if __name__ == "__main__":
     unittest.main()
