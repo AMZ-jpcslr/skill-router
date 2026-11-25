@@ -312,7 +312,9 @@ def with_keywords(records,path=None):
     for row in records:
         k=saved.get(row["path"])
         if isinstance(k,dict) and k.get("stamp")==row.get("stamp") and isinstance(k.get("keywords"),list):
-            row=dict(row,keywords=[x for x in k["keywords"] if isinstance(x,str)][:16])
+            # Requests written for the skill ("取引先へのお詫びメールを書いて") are matched like keywords.
+            asks=[x for x in k.get("requests") or () if isinstance(x,str)][:4]
+            row=dict(row,keywords=[x for x in k["keywords"] if isinstance(x,str)][:12]+asks)
         out.append(row)
     return out
 

@@ -72,6 +72,25 @@ class IndexCache(unittest.TestCase):
         moved = [dict(r, stamp=[0, 0, 0]) for r in ROWS]
         self.assertNotIn("keywords", self.L["with_keywords"](moved, store)[2])
 
+    def test_written_requests_route_a_reworded_request(self):
+        """A request the model wrote for the skill at index time reaches one worded differently."""
+        prompt = "納期が遅れたので、取引先に謝るメールを丁寧に書いて。"
+        def fake(text):
+            self.assertIn("requests", text)
+            items = [json.loads(line) for line in text.splitlines() if line.startswith("{")]
+            return {"skills": [{"id": x["id"], "keywords": [],
+                                "requests": ["取引先への謝罪メールを書いて", "納期遅れのお詫び文を作って"]
+                                if x["name"] == "apology-letters" else []} for x in items]}
+        saved, _ = self.K["update"](ROWS, {}, runner=fake, workers=1)
+        self.assertEqual(saved[ROWS[2]["path"]]["requests"], ["取引先への謝罪メールを書いて", "納期遅れのお詫び文を作って"])
+        store = Path(self.tmp.name) / "k.json"
+        store.write_text(json.dumps({"version": 1, "records": saved}, ensure_ascii=False), encoding="utf-8")
+        self.assertEqual(self.names(prompt, self.L["with_keywords"](ROWS, store)), ["apology-letters"])
+        # Keywords saved before requests were asked for are written again once.
+        old = {p: {"stamp": v["stamp"], "keywords": v["keywords"]} for p, v in saved.items()}
+        _, stats = self.K["update"](ROWS, old, runner=fake, workers=1)
+        self.assertEqual(stats["keywords_written"], len(ROWS))
+
     def test_keyword_text_is_cleaned(self):
         def fake(text):
             return {"skills": [{"id": 0, "keywords": ["ok", "x", "a\u0000b c", "y" * 80, "ok"]}]}
