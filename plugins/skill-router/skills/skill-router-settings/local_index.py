@@ -420,6 +420,31 @@ def active_refs(prompt,guide_names,index=INDEX):
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
     return out[:8]
 
+def find(task,limit=5,index=INDEX):
+    """Installed skills for a task the agent wrote itself, as a line ("write an apology email
+    to a client"). The agent's wording reaches skills the user's own words missed; it is
+    scored like a request, and the closest few are listed for the agent to choose among."""
+    obj=read_json(index,{})
+    if not isinstance(obj,dict) or obj.get("version") not in (1,FORMAT):return []
+    records=with_keywords(one_per_name(obj["records"]))
+    prepared=prepared_features(records)
+    text=OPEN["normalize"](task)[:400]
+    counts=prepared.counts or OPEN["catalog_counts"](prepared[r["path"]] for r in records)
+    q=OPEN["Query"](text,"",counts)
+    pool=[]
+    for row in records:
+        sc,ev,_=OPEN["score_skill"](q,prepared[row["path"]],counts[0],counts[1],len(records),row)
+        if ev and sc>0:pool.append((sc,row))
+    pool.sort(key=lambda x:(-x[0],x[1]["name"],x[1]["path"]))
+    allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
+    out=[]
+    for sc,row in pool:
+        p=Path(row["path"])
+        if sc<pool[0][0]*.5 or len(out)==limit:break
+        if p.name!="SKILL.md" or not any(p.is_relative_to(r) for r in allowed) or not plain(p,stat.S_ISREG):continue
+        out.append({"name":row["name"],"path":p.as_posix(),"summary":summary(row.get("description",""))})
+    return out
+
 def command(argv):
     p=argparse.ArgumentParser(description=__doc__)
     sub=p.add_subparsers(dest="sub",required=True)
@@ -428,6 +453,8 @@ def command(argv):
     k=sub.add_parser("keywords",help="write Japanese keywords for new or changed skills")
     for x in (r,k):x.add_argument("--limit",type=int,default=None)
     sub.add_parser("status")
+    f=sub.add_parser("find",help="list installed skills for a task described in a line (the agent's own wording)")
+    f.add_argument("task")
     for verb in ("add-root","remove-root"):
         sub.add_parser(verb).add_argument("path")
     a=p.parse_args(argv)
@@ -448,6 +475,8 @@ def command(argv):
             write_json(KEYWORDS,{"version":1,"records":saved})
             result.update(stats)
         prepared_features(with_keywords(records))
+    elif a.sub=="find":
+        result={"candidates":find(a.task)}
     elif a.sub=="status":
         curr=read_json(INDEX,{})
         kw=read_json(KEYWORDS,{}).get("records",{})
