@@ -10,9 +10,9 @@ Skill Routerは、依頼に合うスキルの参照先と作業ガイドを自�
 - **Claude CodeとCodexの両方で使える**：同じプラグインを両方に導入でき、設定と索引も共通です。
 - **2,000件規模でもスキル一覧の文字数枠を消費しない**：スキル一覧をまとめて渡さず、依頼ごとに合う候補だけを渡します。
 
-**β.7：Claude Code・Codex Desktop（Windows）**
+**β.8：Claude Code・Codex Desktop（Windows）**
 
-[β.7のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7) · [紹介動画（19秒・MP4）](assets/skill-router-demo-light.mp4)
+[β.8のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.8) · [紹介動画（19秒・MP4）](assets/skill-router-demo-light.mp4)
 
 ## 1. 導入する
 
@@ -49,7 +49,7 @@ PATHに登録したPython 3.10以上が必要です。PowerShellで `python --ve
    npm install -g @openai/codex
    ```
 
-2. [リリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7)から配布ZIPを取得し、展開します。
+2. [リリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.8)から配布ZIPを取得し、展開します。
 3. 展開したフォルダをPowerShellで開き、次を実行します。以前の版を入れていた場合は、先に1行目で古い配布元を外します。
 
    ```powershell
