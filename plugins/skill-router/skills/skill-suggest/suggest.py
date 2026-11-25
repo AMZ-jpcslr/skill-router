@@ -270,7 +270,7 @@ def soft_matcher(L, rows, trust=None):
                 i = j
         return out
 
-    def match(text, k=1):
+    def match(text, k=1, keep=0.75):
         parts = O["work_clauses"](text) or [text]
         query = O["normalize"](" ".join(parts))
         ql, qj, qc = O["features"](query)
@@ -306,7 +306,7 @@ def soft_matcher(L, rows, trust=None):
         scored.sort(key=lambda x: (-x[0], x[1], x[2]["name"]))
         top = scored[0][0]
         if k > 1:
-            return [r for sc, _, r in scored[:k] if sc >= 4.0 and sc >= top * 0.75]
+            return [r for sc, _, r in scored[:k] if sc >= 4.0 and sc >= top * keep]
         if top < 4.0:
             return None
         near = [r for sc, _, r in scored if sc > top * 0.9]
@@ -541,19 +541,20 @@ def find(description, include_public=True):
     have = {r["name"] for r in records}
     pool = [dict(r, source="local") for r in records] + [r for r in rows if r["name"] not in have]
     trust = {k: v.get("trust") for k, v in sources.items()}
-    near = soft_matcher(L, without_keywords(pool), trust)(description, 5)
-    if not any(r["source"] == "local" for r in near):
-        near = soft_matcher(L, pool, trust)(description, 5)
+    # A wider shortlist than routing: the agent reads each description and keeps only
+    # those whose purpose fits (see SKILL.md), as it does for the router's candidates.
+    near = soft_matcher(L, without_keywords(pool), trust)(description, 8, 0.5)
     known = {x["skill"] for x in local}
-    local += [{"skill": r["name"], "path": r["path"], "basis": "description_overlap"}
+    summary = {r["name"]: L["summary"](r.get("description", ""), 200) for r in records}
+    for x in local:
+        x["description"] = summary.get(x["skill"], "")
+    local += [{"skill": r["name"], "path": r["path"], "basis": "description_overlap", "description": summary[r["name"]]}
               for r in near if r["source"] == "local" and r["name"] not in known]
-    out = {"local": local[:5], "builtin_guides": guides, "public": []}
-    # Installed skills found only by shared words are a weak answer; show public ones too.
-    if not any(x["basis"] == "router" for x in local):
-        public = [r for r in near if r["source"] != "local"]
-        if not public and local:
-            public = [r for r in soft_matcher(L, pool[len(records):], trust)(description, 3)]
-        out["public"] = [public_row(r, sources) for r in public][:3]
+    out = {"local": local[:8], "builtin_guides": guides, "public": []}
+    # Unless the router itself found one, public skills are listed for the agent to weigh too.
+    if include_public and not any(x["basis"] == "router" for x in local):
+        public = soft_matcher(L, pool[len(records):], trust)(description, 5, 0.5)
+        out["public"] = [public_row(r, sources) for r in public]
     if not (local or guides or out["public"]):
         out["elsewhere"] = elsewhere(have)
     return out
