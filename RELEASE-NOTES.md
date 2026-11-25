@@ -8,6 +8,7 @@ Claude CodeとCodex Desktop（Windows）で、依頼に合う導入済みスキ�
 
 ## 主な変更
 
+- 索引が自動で追従するようになりました。スキルを追加・変更・削除しても、プラグインを更新しても、次の依頼のときに反映されます。検索語を一度作っていれば、新しいスキルの分も裏で作られます。
 - 候補選びを作り直しました。分野や製品の対応表を持たず、スキル名・説明・検索語の語を珍しさで重み付けして照合します。英語だけで書かれたスキルにも日本語の依頼が届きます。
 - 1つに絞れないときは、説明の抜粋つきで近い候補を最大5件渡し、AIが合うものを選びます。フックの候補が合わないときは、AIが `router.py index find` で導入済みスキルを探し直せます。
 - 検索語の生成で、スキルごとに日本語の「よくある頼まれ方」を8件作ります。言い方が違う依頼でも候補に挙がりやすくなります。
@@ -23,6 +24,6 @@ Claude CodeとCodex Desktop（Windows）で、依頼に合う導入済みスキ�
 
 Claude Codeは `/plugin marketplace add AMZ-jpcslr/skill-router` と `/plugin install skill-router@skill-router-preview` で導入します。導入済みの場合は `/plugin marketplace update skill-router-preview` で更新します。Codex Desktopは配布ZIPを展開してそのフォルダを残し、[README](README.md)の手順で導入してください。以前の版を入れている場合は、先に `codex plugin marketplace remove skill-router-preview` を実行します。
 
-beta.7以前から更新した場合は、索引と検索語を1回作り直してください（`router.py index refresh --keywords`）。
+検索語をまだ作っていない場合は、READMEの「検索語を作る（初回に1回）」を1回だけ実行してください。以前の版で作った検索語は、更新後の最初の依頼のときに裏で一度だけ作り直されます。
 
 この配布物は [MITライセンス](LICENSE) です。最適な候補が見つからない場合や、候補が見つかってもエージェントが使わない場合があります。スキルの自動インストールは行いません。配布ZIPのSHA-256は同梱のチェックサムファイルで照合できます。
