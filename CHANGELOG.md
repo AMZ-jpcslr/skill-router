@@ -1,6 +1,6 @@
 # Release notes
 
-## Unreleased
+## 0.1.0-beta.9
 
 - 返答の最後に、そのターンで実際に使ったスキルを1行で出すようにしました（`Skill Router: nihongo-polish、readme（ガイド）`、使わなかったときは `Skill Router: 該当なし`）。Claude CodeとCodexの両方で出ます。候補に出ただけのスキルや、開いたが従わなかったスキルは書きません。編集したファイルや作った文章には入れず、「本文だけ」やJSONだけを頼んだときは出しません。
   - `router.py show-picks off`（または Skill Router 設定で「使ったスキルの表示をオフにして」）で止められます。設定ファイルに `show_picks` が足されますが、これまでの設定ファイルもそのまま使えます。

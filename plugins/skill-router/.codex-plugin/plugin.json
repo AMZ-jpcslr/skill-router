@@ -1,6 +1,6 @@
 {
   "name": "skill-router",
-  "version": "0.1.0-beta.8",
+  "version": "0.1.0-beta.9",
   "description": "Local skill routing with opt-in scopes and on-demand recommendations.",
   "interface": {
     "displayName": "Skill Router",
