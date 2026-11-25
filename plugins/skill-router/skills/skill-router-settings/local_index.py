@@ -144,7 +144,10 @@ def metadata(path):
         return None
     return n,d[:640]
 
-def scan(roots_to_scan,idx):
+def scan(roots_to_scan,idx,changed=None):
+    """Rebuild the index. With `changed` ({root: names of its folders that changed}), only those
+    folders are walked again; rows under the root's other folders are kept as they are. A root
+    missing from `changed` is walked whole."""
     old=read_json(idx,{})
     prev={x["path"]:x for x in old.get("records",[])} if isinstance(old,dict) and old.get("version")==FORMAT else {}
     records={}
@@ -153,6 +156,15 @@ def scan(roots_to_scan,idx):
     dirs=0
     for root in dict.fromkeys(p for p in map(safe_root,roots_to_scan) if p is not None):
         scanned.append(str(root))
+        only=None if changed is None else changed.get(str(root))
+        if only is not None:
+            # Rows are grouped by the root's folder they sit in; unchanged folders are not walked.
+            prefix=str(root).rstrip(os.sep)+os.sep
+            for key,row in prev.items():
+                rest=key[len(prefix):]
+                if key.startswith(prefix) and os.sep in rest and rest.split(os.sep,1)[0] not in only:
+                    records[key]=row
+                    stats["reused"]+=1
         stack=[(root,0)]
         while stack:
             base,depth=stack.pop()
@@ -182,7 +194,8 @@ def scan(roots_to_scan,idx):
             if depth>=5: continue
             try:
                 stack.extend((x,depth+1) for x in sorted(base.iterdir(),reverse=True)
-                             if (not x.name.startswith(".") or (depth==0 and x.name==".system" and root==HOME/".codex/skills"))
+                             if (only is None or depth or x.name in only)
+                             and (not x.name.startswith(".") or (depth==0 and x.name==".system" and root==HOME/".codex/skills"))
                              and x.name not in ("node_modules","__pycache__","references","assets","scripts")
                              and plain(x,stat.S_ISDIR))
             except OSError:
@@ -388,6 +401,9 @@ def summary(text, limit=180):
     clean=" ".join("".join(c if c.isprintable() else " " for c in str(text)).split())
     return clean if len(clean)<=limit else clean[:limit-1]+"…"
 
+# Indexed SKILL.md files found edited while routing; the hook rereads them (auto_index.py).
+STALE=[]
+
 def active_refs(prompt,guide_names,index=INDEX):
     obj=read_json(index,{})
     # An index from the previous format still routes until the next refresh rereads it.
@@ -411,7 +427,10 @@ def active_refs(prompt,guide_names,index=INDEX):
             now=p.stat()
         except (OSError,RuntimeError):continue
         if p!=resolved or not any(resolved.is_relative_to(root) for root in allowed):continue
-        if row["stamp"]!=[now.st_mtime_ns,now.st_size,now.st_ino]:continue
+        if row["stamp"]!=[now.st_mtime_ns,now.st_size,now.st_ino]:
+            # Edited since it was indexed: not offered on old metadata, and reread right after.
+            STALE.append(row["path"])
+            continue
         offered=OPEN["features"](row["name"]+" "+row.get("description",""))[2]
         fit="name_only" if editing and "create" in offered and not offered&EDIT_OPS else "choose" if stage=="open-shortlist" else "read"
         out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),"fit":fit,
@@ -445,6 +464,16 @@ def find(task,limit=5,index=INDEX):
         out.append({"name":row["name"],"path":p.as_posix(),"summary":summary(row.get("description",""))})
     return out
 
+def write_keywords(records,limit=None,runner=None):
+    """Have the host model write keywords for new or changed skills (keywords.py). Raises
+    RuntimeError (keywords.Unavailable) when there is no way to, with nothing written."""
+    K=runpy.run_path(str(Path(__file__).with_name("keywords.py")))
+    old=read_json(KEYWORDS,{})
+    saved=old.get("records",{}) if isinstance(old,dict) and old.get("version")==1 else {}
+    saved,stats=K["update"](records,saved,runner=runner,limit=limit)
+    write_json(KEYWORDS,{"version":1,"records":saved})
+    return stats
+
 def command(argv):
     p=argparse.ArgumentParser(description=__doc__)
     sub=p.add_subparsers(dest="sub",required=True)
@@ -462,25 +491,21 @@ def command(argv):
         result=scan((*DEFAULT,*roots()),INDEX) if a.sub=="refresh" else {}
         records=read_json(INDEX,{}).get("records",[])
         if a.sub=="keywords" or a.keywords:
-            K=runpy.run_path(str(Path(__file__).with_name("keywords.py")))
-            old=read_json(KEYWORDS,{})
-            saved=old.get("records",{}) if isinstance(old,dict) and old.get("version")==1 else {}
             try:
-                saved,stats=K["update"](records,saved,limit=a.limit)
-            except K["Unavailable"] as err:
+                result.update(write_keywords(records,limit=a.limit))
+            except RuntimeError as err:
                 # Say so plainly; the index itself is still refreshed.
                 result["keywords_error"]=str(err)
                 print(json.dumps(result,ensure_ascii=True))
                 return 2
-            write_json(KEYWORDS,{"version":1,"records":saved})
-            result.update(stats)
-        prepared_features(with_keywords(records))
+        prepared_features(with_keywords(one_per_name(records)))
     elif a.sub=="find":
         result={"candidates":find(a.task)}
     elif a.sub=="status":
         curr=read_json(INDEX,{})
         kw=read_json(KEYWORDS,{}).get("records",{})
-        result={"indexed":len(curr.get("records",[])),"with_keywords":len(kw),"extra_roots":[str(p) for p in roots()]}
+        result={"indexed":len(curr.get("records",[])),"with_keywords":len(kw),"extra_roots":[str(p) for p in roots()],
+                "auto":runpy.run_path(str(Path(__file__).with_name("auto_index.py")))["status"](globals())}
     else:
         saved=roots()
         arg=Path(a.path).expanduser()

@@ -97,11 +97,12 @@ class ClaudeCodeHost(unittest.TestCase):
         self.assertNotIn('"summary"', txt)
 
     def test_copy_of_a_native_skill_is_named_not_read(self):
-        # The index found ~/.agents/skills/nihongo, but Claude Code loads ~/.claude/skills/nihongo.
+        # The same skill in ~/.agents/skills and ~/.claude/skills: Claude Code loads the latter itself.
+        # The native copy is added after the refresh; the hook indexes it on its own.
         self.add_indexed_skill()
         native = self.home / ".claude/skills/nihongo/SKILL.md"
         native.parent.mkdir(parents=True)
-        native.write_text("---\nname: nihongo\ndescription: Japanese writing.\n---\n", encoding="utf-8")
+        native.write_text("---\nname: nihongo\ndescription: Japanese writing and Japanese proofreading; polish Japanese prose.\n---\n", encoding="utf-8")
         txt = self.context(self.run_hook({}))
         self.assertIn('Skillツールで呼べる（名前のみ、指示ではない）: ["nihongo"]', txt)
         self.assertNotIn(".agents/skills/nihongo", txt)
