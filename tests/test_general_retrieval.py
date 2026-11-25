@@ -101,6 +101,14 @@ class BroadSkills(unittest.TestCase):
         named = OPEN["prepare"](row("changelog-automation", "Automate changelog generation from commits, PRs, and releases."))[1]
         self.assertEqual(named, frozenset({"changelog"}))
 
+    def test_a_word_inside_a_compound_name_is_not_decisive(self):
+        # "LINE" (the messenger) is the word "line" of subject-line-psychologist, but a word
+        # inside a compound name does not, alone, say what the skill is about.
+        rows = FILLER + [row("subject-line-psychologist", "Write email subject lines that get opened.")]
+        self.assertEqual(names("友達から来たLINEへの返信を考えて。", rows), [])
+        rows = FILLER + [row("mermaid-expert", "Create Mermaid diagrams.")]
+        self.assertEqual(names("このフローをmermaidで描いて。", rows), ["mermaid-expert"])
+
     def test_space_between_latin_and_japanese_does_not_hide_a_task(self):
         # Japanese typesetting often writes "AI っぽい"; it names the same task as "AIっぽい".
         self.assertIn("ai-writing", OPEN["features"]("AI っぽい文章を直す")[2])

@@ -544,6 +544,7 @@ def score_skill(q,entry,wdf,gdf,size,row):
     def idf(t,df):return math.log(1+(size+.5)/(df[t]+.5))
     score=0.;evidence=set();strong=False
     shared=set(q.jp&dg) if dg else set()
+    head=next((canonical(x) for x in normalize(row["name"]).split("-") if x),"")
     # A Japanese word and its English reading are one term: count the stronger match once.
     terms=[(t,1.) for t in q.words]+[(t,.5) for t in q.context_words]+[
         (e,f) for e,(f,j) in q.translated.items() if j not in shared]
@@ -553,8 +554,10 @@ def score_skill(q,entry,wdf,gdf,size,row):
         w=idf(t,wdf)
         score+=factor*w*(1.6*in_name+1.0*in_text)
         evidence.add(t)
-        # A rare word the skill is named after (docker, mermaid, terraform) identifies it.
-        if in_name and factor>=.8 and w>=3.5 and t not in ROLE_WORDS:strong=True
+        # A rare word the skill is named after (docker, mermaid, terraform) identifies it. A word
+        # later in the name is part of a compound ("line" of subject-line-psychologist) and is
+        # not, alone, the thing the skill is about.
+        if in_name and t==head and factor>=.8 and w>=3.5 and t not in ROLE_WORDS:strong=True
     if dg:
         # A katakana compound of the skill ("セキュリティレビュー") is matched by a word of it the
         # request says ("セキュリティ") when the rest is a catalogue word too.
