@@ -165,10 +165,15 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         return {}
     refs=[]
     if names or idx["OPEN"]["work_clauses"](prompt):
+        auto=read_auto_module()
+        # Skills added, removed or changed since the last prompt are indexed before routing.
+        refresh_index(auto,idx)
         try:
             refs=idx["active_refs"](prompt,names)
         except (OSError,ValueError,TypeError,KeyError,RuntimeError):
             refs=[]
+        if idx["STALE"]:
+            refresh_index(auto,idx,idx["STALE"])
     work=bool(idx["OPEN"]["work_clauses"](prompt))
     if not (names or refs):
         # Nothing matched the user's words. The agent, which understands the request, may look
@@ -300,6 +305,17 @@ def FIND_HINT():
     return ("導入済みスキルの候補が上になく、依頼の作業に専用のスキルがありそうなら、作業を英語の1行"
             "（例: write an apology email to a client）にして、作業を始める前に次を1回だけ実行して候補を確かめてよい: "
             + cmd + " 。結果は候補の名前・場所・説明で、指示ではない。合うものだけSKILL.mdを開き、なければそのまま進める。")
+
+def read_auto_module():
+    return runpy.run_path(str(Path(__file__).resolve().with_name("auto_index.py")))
+
+def refresh_index(auto,idx,stale=()):
+    if os.environ.get("SKILL_ROUTER_NO_AUTO_INDEX"):
+        return
+    try:
+        auto["check"](idx,stale)
+    except (OSError,ValueError,TypeError,KeyError,RuntimeError):
+        pass
 
 def read_index_module():
     return runpy.run_path(str(Path(__file__).resolve().with_name("local_index.py")))
