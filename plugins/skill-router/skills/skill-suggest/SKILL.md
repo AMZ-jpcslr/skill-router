@@ -1,6 +1,6 @@
 ---
 name: skill-suggest
-description: Use only when the user asks which skills to add or how to set up their skills (おすすめのスキル). Reviews local usage read-only; never installs.
+description: Use only when the user asks which skills to add, how to set up their skills (おすすめのスキル), or to check installed skills' descriptions (スキルの健康診断). Read-only; never installs or edits.
 ---
 # スキルのおすすめ
 このファイルと同じフォルダの `suggest.py` を使う。Windowsでは `python -I -B -X utf8`、macOS/Linuxでは `python3 -I -B -X utf8` で実行し、スクリプトのパスはこのSKILL.mdの場所から解決する。
@@ -28,6 +28,20 @@ description: Use only when the user asks which skills to add or how to set up th
 
 ## 見つからないとき
 結果に `elsewhere` があれば、ここの一覧では見つからなかったと伝え、より大きな公開登録先（skills.sh）を Find-skills（`npx skills find 英語の短い検索語`）で探せると案内する。`find_skills_installed` が真なら Find-skills スキルを使える。外部検索は利用者が望んだときだけ行い、送るのは利用者が了承した検索語だけで、履歴は送らない。
+
+## スキルの健康診断
+「スキルを診断して」「選ばれにくいスキルは？」「似ているスキルを整理したい」と頼まれたら、このフォルダの隣の `skill-router-settings/router.py doctor` を実行する（同じPython、同じ引数の付け方）。導入済みスキルの索引にある名前と説明だけを、ルーター本体と同じ採点で調べる。1件だけ詳しく見るときは `--skill <名前>`、件数は `--limit <件数>`。`error: index_missing` なら `router.py index refresh` を案内する。
+
+結果の読み方：
+- `hard_to_pick`: 依頼から選ばれにくいスキル。`issues` は `too_short`（説明が短い）、`few_specific_words`（そのスキルにしかない語が少なく、ほかと区別できない）、`generic_name`（名前がよくある語だけ）、`no_when_to_use`（いつ使うかが書かれていない）、`loses_own_examples`（索引時に作った「よくある頼まれ方」で、ほかのスキルに負ける）。`specific_words` はそのスキルを見分ける手がかりになっている語。
+- `overlaps`: 役割が重なり、ルーターが見分けにくい組。`closeness` は片方の説明の1文目をもう片方がどれだけ同じくらい言い当てるか（1以上なら相手の方が高く採点される）、`similarity` は珍しい語の重なり、`shared_words` は共通の語、`only_<名前>` はそれぞれにしかない語。
+- `without_japanese_words` と `action`: 日本語の語を持たないスキルの数。`action` があれば `router.py index refresh --keywords` を案内する。
+
+直し案の出し方（上位5件ほど）：
+1. 説明の直し案を、元の説明と同じ言語で1つずつ書く。最初の1文で「何をして何ができあがるか」を、`only_<名前>` や `specific_words` の語、またはそのSKILL.mdの本文から確かめた具体的な語で言う。次に「〜のときに使う」を書く。重なる組には「〜には <相手の名前> を使う」と使い分けを1文で添える。本文にない機能や用途は足さない。1024文字以内。
+2. 案を見せる前に、1件ずつ `router.py doctor --skill <名前> --try-description "<案>"` で確かめる。`before` と `after` の `issues` と `overlaps` を比べ、良くなった案だけを、何が変わったか（例：重なりの `closeness` 1.14→0.62）と一緒に見せる。良くならなければ案を直して確かめ直す。
+3. `similarity` が1に近い組は中身が同じ可能性が高い。どちらかを残す選択肢として伝えるだけにする。
+4. SKILL.md は書き換えない。利用者が特定の案の反映をはっきり頼んだときだけ、そのファイルの `description` だけを書き換え、`router.py index refresh` を実行する。削除や移動はしない。
 
 ## 守ること
 - 結果に依頼の本文を引用しない。語と件数だけを使う。
