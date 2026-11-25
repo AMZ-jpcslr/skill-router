@@ -346,7 +346,7 @@ def keyword_terms(row):
     for k in row.get("keywords") or ():
         k=normalize(str(k)).strip()
         if 2<=len(k)<=40 and k not in out:out.append(k)
-    return out[:16]
+    return out[:20]
 
 # Where a request points (a URL, an absolute path to save to) is not the work it asks for;
 # its words ("github", "users") say nothing about which skill fits.

@@ -90,6 +90,12 @@ class IndexCache(unittest.TestCase):
         old = {p: {"stamp": v["stamp"], "keywords": v["keywords"]} for p, v in saved.items()}
         _, stats = self.K["update"](ROWS, old, runner=fake, workers=1)
         self.assertEqual(stats["keywords_written"], len(ROWS))
+        # Unchanged entries are kept; ones written when fewer requests were asked for are written again once.
+        _, stats = self.K["update"](ROWS, saved, runner=fake, workers=1)
+        self.assertEqual(stats["keywords_written"], 0)
+        fewer = {p: dict(v, asked=3) for p, v in saved.items()}
+        _, stats = self.K["update"](ROWS, fewer, runner=fake, workers=1)
+        self.assertEqual(stats["keywords_written"], len(ROWS))
 
     def test_keyword_text_is_cleaned(self):
         def fake(text):

@@ -132,7 +132,8 @@ def add_keywords(entries, previous):
     K = runpy.run_path(str(OUT.parents[1] / "skill-router-settings" / "keywords.py"))
     rows = [dict(e, path=e["url"], stamp=zlib.crc32(e["description"].encode())) for e in entries]
     saved = {e["url"]: {"stamp": zlib.crc32(e["description"].encode()), "keywords": e["keywords"],
-                        **({"requests": e["requests"]} if isinstance(e.get("requests"), list) else {})}
+                        **({"requests": e["requests"]} if isinstance(e.get("requests"), list) else {}),
+                        **({"asked": e["asked"]} if "asked" in e else {})}
              for e in previous if e.get("keywords")}
     saved, stats = K["update"](rows, saved)
     print(stats, file=sys.stderr)
@@ -140,6 +141,7 @@ def add_keywords(entries, previous):
         if saved.get(e["url"]):
             e["keywords"] = saved[e["url"]]["keywords"]
             e["requests"] = saved[e["url"]].get("requests", [])
+            e["asked"] = saved[e["url"]].get("asked")
 
 
 def main():
