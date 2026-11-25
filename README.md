@@ -69,7 +69,7 @@ $r = (Get-ChildItem "$env:USERPROFILE\.claude\plugins", "$env:USERPROFILE\.codex
 python $r index refresh --keywords
 ```
 
-設定・索引・検索語はClaude CodeとCodexで共通（`~/.skill-router-beta/`）なので、1回で両方に効きます。スキルを追加・変更したら、もう一度実行します。
+設定・索引・検索語はClaude CodeとCodexで共通（`~/.skill-router-beta/`）なので、1回で両方に効きます。この操作は初回だけです。以降はスキルを追加・変更・削除しても、プラグインを更新しても、次の依頼のときに索引が自動で追従し、新しいスキルの検索語も裏で作られます。
 
 ## 2. 初回セットアップ
 
@@ -77,7 +77,7 @@ python $r index refresh --keywords
 2. **Review hooks** が表示されたら、[同梱フック](https://learn.chatgpt.com/docs/hooks#plugin-bundled-hooks)の `UserPromptSubmit` の内容を確認し、使う場合は承認します。
 3. **Skill Router 設定**（`$skill-router-settings`）を選び、次のように頼みます。
 
-   > この作業フォルダだけ自動選択をオンにして、導入済みスキルの索引を更新して。
+   > この作業フォルダだけ自動選択をオンにして。
 
 ## 3. 使ってみる
 
@@ -97,7 +97,7 @@ Skill RouterはREADME用のガイドを渡し、導入済みスキルに推敲�
 | 全プロジェクトをオン／オフ | フォルダを開いているチャット全体を設定。オンの間は個別設定より優先します |
 | フォルダなしのチャットをオン／オフ | フォルダなしと判定したチャットを設定 |
 | 状態を教えて／全部オフ | 現在の設定を表示／すべての自動選択をオフにして個別登録を解除 |
-| 索引を更新して | 導入済みスキルの追加・変更・削除を反映 |
+| 索引を更新して | 導入済みスキルの追加・変更・削除をすぐ反映（通常は次の依頼で自動反映） |
 
 ## 5. 機能
 
