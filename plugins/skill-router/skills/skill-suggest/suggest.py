@@ -199,6 +199,18 @@ def engine():
     return L, R
 
 
+def borrow_keywords(records, L):
+    """An installed skill that is also in the catalogue, under the same name and without
+    search terms of its own, takes the catalogue's (written from the same description)."""
+    try:
+        rows, _ = catalog(L)
+    except (OSError, ValueError, KeyError):
+        return records
+    terms = {r["name"]: r["keywords"] for r in rows if r.get("keywords")}
+    return [r if r.get("keywords") or r["name"] not in terms else dict(r, keywords=terms[r["name"]], borrowed_keywords=True)
+            for r in records]
+
+
 def catalog(L):
     raw = json.loads((HERE / "catalog.json").read_text(encoding="utf-8"))
     sources = {s["id"]: s for s in raw["sources"]}
@@ -217,11 +229,12 @@ def soft_matcher(L, rows, trust=None):
     df = Counter()
     strip = lambda w: re.sub(r"[\u3041-\u309f\s]+", "", w)
     for r in rows:
-        kws.append([strip(O["normalize"](k)) for k in r.get("keywords") or []])
+        kws.append(([strip(O["normalize"](k)) for k in r.get("keywords") or []],
+                    [O["features"](k)[2] for k in r.get("keywords") or []]))
         text = O["normalize"](r["name"].replace("-", " ") + " " + r["description"] + " " + " ".join(r.get("keywords") or []))
         name = O["features"](r["name"].replace("-", " "))
         meta = O["features"](text)
-        feats.append((name[0], meta[0], meta[1]))
+        feats.append((name[0], meta[0], meta[1], meta[2]))
         texts.append(text)
         df.update(meta[0])
     size = max(1, len(rows))
@@ -265,7 +278,7 @@ def soft_matcher(L, rows, trust=None):
         if not ql and not qj:
             return [] if k > 1 else None
         scored = []
-        for r, (nl, dl, dj), body, kw in zip(rows, feats, texts, kws):
+        for r, (nl, dl, dj, dc), body, (kw, kconcepts) in zip(rows, feats, texts, kws):
             lat = ql & dl
             grams = qj & dj
             if not lat and not grams:
@@ -276,10 +289,17 @@ def soft_matcher(L, rows, trust=None):
                   any(p in k and 2 * len(p) >= len(k) for k in kw) or (len(p) >= 3 and p in body[:len(body) - len(" ".join(r.get("keywords") or []))]))}
             # Operation words alone (作成, 修正) say what to do, not what about.
             jp = {p for p in jp if not (O["features"](p)[2] and O["features"](p)[2] <= O["OPS"])}
-            if not lat and not jp:
+            # Without a shared word, one short stretch (入力, 計算) is too little to go on,
+            # unless it names the same subject the router recognises in both (動画: video).
+            if not lat and not (len(jp) >= 2 or any(len(p) >= 3 for p in jp) or (jp and (qc & dc) - O["OPS"])):
                 continue
+            # The same subject and operation in both, whatever the words (動画制作 and
+            # "video creation" are both video + create), as the router's concepts tell.
             score = (sum(idf(df[t]) * (1.6 if t in nl else 1.0) for t in lat)
-                     + sum(idf(span_df(p)) for p in jp))
+                     + sum(idf(span_df(p)) for p in jp)
+                     + (1.5 * len(qc & dc) if (qc & dc) - O["OPS"] else 0)
+                     # One of its search terms means the whole request: 動画作成 for 動画制作.
+                     + (3.0 if qc - O["OPS"] and any(qc <= c for c in kconcepts) else 0))
             scored.append((score, -len(r["description"]), r))
         if not scored:
             return [] if k > 1 else None
@@ -335,8 +355,8 @@ def analyse(days=60, today=None, include_public=True):
     used = read_skill_use(since, budget)
     index = L["read_json"](L["INDEX"], {})
     all_records = index.get("records", []) if isinstance(index, dict) else []
-    records = L["with_keywords"](L["one_per_name"](all_records))
-    prepared = L["prepared_features"](records)
+    records = borrow_keywords(L["with_keywords"](L["one_per_name"](all_records)), L)
+    prepared = L["prepared_features"](records, save=False)
     names = {r["name"] for r in all_records}
     work_clauses = L["OPEN"]["work_clauses"]
     stop = stop_terms(L)
@@ -494,17 +514,29 @@ def analyse(days=60, today=None, include_public=True):
                 term_days[w].add(day)
     report["gaps"] = [{"term": w, "days": len(d)} for w, d in sorted(term_days.items(), key=lambda kv: (-len(kv[1]), kv[0])) if len(d) >= 3][:10]
     report["uncovered_requests"] = len(uncovered)
+    # Too little history to infer anything: offer the official and curated skills not yet
+    # installed, ordered by how trusted their source is, and the ways to look further.
+    if work < 10 and include_public:
+        rows, sources = catalog(L)
+        fresh = [r for r in rows if r["name"] not in names
+                 and TRUST.get(sources.get(r["source"], {}).get("trust"), 9) <= 1]
+        fresh.sort(key=lambda r: (TRUST.get(sources[r["source"]].get("trust"), 9), r["kind"] != "skill", r["name"]))
+        report["starter"] = {"reason": "little_history", "work_requests": work,
+                             "public": [public_row(r, sources) for r in fresh[:8]], "more": len(fresh) - min(8, len(fresh)),
+                             "next": ["find", "topics", "browse"]}
     return report
 
 
 def find(description, include_public=True):
     """One-shot: which installed or public skill fits work described in words."""
     L, R = engine()
+    # Every candidate is a skill, so the word itself ("使えるスキルは？") says nothing.
+    description = re.sub(r"(?i)\bskills?\b|スキル", " ", description)
     index = L["read_json"](L["INDEX"], {})
-    records = L["with_keywords"](L["one_per_name"](index.get("records", []) if isinstance(index, dict) else []))
+    records = borrow_keywords(L["with_keywords"](L["one_per_name"](index.get("records", []) if isinstance(index, dict) else [])), L)
     guides = R["narrow_pick"]("。".join(L["OPEN"]["work_clauses"](description)))
     local = [{"skill": r["name"], "path": r["path"], "basis": "router"}
-             for _, r in L["rank"](description, records, guides, None, L["prepared_features"](records))]
+             for _, r in L["rank"](description, records, guides, None, L["prepared_features"](records, save=False))]
     rows, sources = catalog(L) if include_public else ([], {})
     have = {r["name"] for r in records}
     pool = [dict(r, source="local") for r in records] + [r for r in rows if r["name"] not in have]
@@ -516,8 +548,12 @@ def find(description, include_public=True):
     local += [{"skill": r["name"], "path": r["path"], "basis": "description_overlap"}
               for r in near if r["source"] == "local" and r["name"] not in known]
     out = {"local": local[:5], "builtin_guides": guides, "public": []}
-    if not local:
-        out["public"] = [public_row(r, sources) for r in near if r["source"] != "local"][:3]
+    # Installed skills found only by shared words are a weak answer; show public ones too.
+    if not any(x["basis"] == "router" for x in local):
+        public = [r for r in near if r["source"] != "local"]
+        if not public and local:
+            public = [r for r in soft_matcher(L, pool[len(records):], trust)(description, 3)]
+        out["public"] = [public_row(r, sources) for r in public][:3]
     if not (local or guides or out["public"]):
         out["elsewhere"] = elsewhere(have)
     return out
@@ -533,7 +569,7 @@ def elsewhere(installed):
 def browse_pool(L):
     index = L["read_json"](L["INDEX"], {})
     records = L["one_per_name"](index.get("records", []) if isinstance(index, dict) else [])
-    records = L["with_keywords"](records)
+    records = borrow_keywords(L["with_keywords"](records), L)
     rows, sources = catalog(L)
     have = {r["name"] for r in records}
     return records, [r for r in rows if r["name"] not in have], sources
