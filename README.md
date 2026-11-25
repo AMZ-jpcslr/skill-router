@@ -10,9 +10,9 @@ Skill Routerは、依頼に合うスキルの参照先と作業ガイドを自�
 - **Claude CodeとCodexの両方で使える**：同じプラグインを両方に導入でき、設定と索引も共通です。
 - **2,000件規模でもスキル一覧の文字数枠を消費しない**：スキル一覧をまとめて渡さず、依頼ごとに合う候補だけを渡します。
 
-**β.7：Claude Code・Codex Desktop（Windows）**
+**β.8：Claude Code・Codex Desktop（Windows）**
 
-[β.7のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7) · [紹介動画（19秒・MP4）](assets/skill-router-demo-light.mp4)
+[β.8のリリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.8) · [紹介動画（19秒・MP4）](assets/skill-router-demo-light.mp4)
 
 ## 1. 導入する
 
@@ -49,7 +49,7 @@ PATHに登録したPython 3.10以上が必要です。PowerShellで `python --ve
    npm install -g @openai/codex
    ```
 
-2. [リリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.7)から配布ZIPを取得し、展開します。
+2. [リリースページ](https://github.com/AMZ-jpcslr/skill-router/releases/tag/v0.1.0-beta.8)から配布ZIPを取得し、展開します。
 3. 展開したフォルダをPowerShellで開き、次を実行します。以前の版を入れていた場合は、先に1行目で古い配布元を外します。
 
    ```powershell
@@ -105,7 +105,7 @@ Skill RouterはREADME用のガイドを渡し、導入済みスキルに推敲�
 - **内蔵ガイド**：README編集、原因調査、回帰テスト、応募文、Wordの変更履歴に短い作業ガイドが付属します。
 - **スキルのおすすめ**：**Skill Suggest**（Claude Codeは `/skill-router:skill-suggest`、Codexは `$skill-suggest`）を呼び出すか、「おすすめのスキルを教えて」と頼むと、普段の依頼の傾向から、スキル設定の見直し（毎回名前で呼んでいるスキルの説明に足す語、使われていないスキル、重複、Claude Codeの一覧枠を圧迫しているスキルの移し先）と、合うスキルがない作業に向く公開スキルを提案します。「〜に使えるスキルは？」と聞けば、その作業に合う導入済み・公開スキルを探します。配布元の分類から分野ごとに見ることもでき、同梱の一覧で見つからないときは Find-skills（skills.sh）での検索を案内します。
 - **スキルの健康診断**：Skill Suggestに「スキルを診断して」と頼むと、説明が短い・あいまいで選ばれにくいスキルと、役割が重なって見分けにくいスキルの組を挙げ、使い分けがはっきりする説明の直し案を出します。案はルーターと同じ採点で効果を確かめてから示し、SKILL.mdは書き換えません（コマンドは `router.py doctor`、1件だけなら `--skill <名前>`）。
-- **ローカル索引**：`~/.agents/skills` と `~/.codex/skills` から、スキル名・説明・ファイルの場所を登録します。別の保管フォルダは設定から追加できます。索引と設定の保存先は `~/.skill-router-beta/` です。
+- **ローカル索引**：`~/.agents/skills`・`~/.codex/skills`・`~/.claude/skills` から、スキル名・説明・ファイルの場所を登録します。別の保管フォルダは設定から追加できます。索引と設定の保存先は `~/.skill-router-beta/` です。
 
 おすすめの材料は、Claude CodeとCodexがもともとPCに残している依頼履歴とセッション記録（既定で直近60日）です。Skill Suggestを呼び出したときだけ読み取り専用で読み、新たな記録・保存・送信はしません。結果には依頼の本文を出さず、語と件数だけを使います。公開スキルは同梱の一覧（名前・説明・リンクのみ）から選び、インストールはしません。外部スキルは各配布元から入手し、各ライセンスに従って利用してください。
 

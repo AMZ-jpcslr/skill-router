@@ -1,0 +1,8 @@
+# 配布ZIP（git archive）に含めないもの
+tests/ export-ignore
+tools/ export-ignore
+RELEASE-CHECKLIST.md export-ignore
+assets/*.png export-ignore
+assets/*.jpg export-ignore
+assets/*.mp4 export-ignore
+.gitattributes export-ignore

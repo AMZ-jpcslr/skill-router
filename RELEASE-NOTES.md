@@ -1,4 +1,4 @@
-# Skill Router 0.1.0-beta.7
+# Skill Router 0.1.0-beta.8
 
 Claude CodeとCodex Desktop（Windows）で、依頼に合う導入済みスキルや作業ガイドを、名前を指定せずに使えるようにするβ版です。自動選択は初期状態でオフです。使いたい作業フォルダでオンにできます。
 
@@ -8,12 +8,22 @@ Claude CodeとCodex Desktop（Windows）で、依頼に合う導入済みスキ�
 
 ## 主な変更
 
-- Claude Codeに対応しました。
-- 日本語の検索語をスキルごとに作れるようにしました（`router.py index refresh --keywords`）。
-- 資料にない事実の追加、本文外の不要な付記、語数の超過を減らす書き方のルールを足しました。
+- 索引が自動で追従するようになりました。スキルを追加・変更・削除しても、プラグインを更新しても、次の依頼のときに反映されます。検索語を一度作っていれば、新しいスキルの分も裏で作られます。
+- 候補選びを作り直しました。分野や製品の対応表を持たず、スキル名・説明・検索語の語を珍しさで重み付けして照合します。英語だけで書かれたスキルにも日本語の依頼が届きます。
+- 1つに絞れないときは、説明の抜粋つきで近い候補を最大5件渡し、AIが合うものを選びます。フックの候補が合わないときは、AIが `router.py index find` で導入済みスキルを探し直せます。
+- 検索語の生成で、スキルごとに日本語の「よくある頼まれ方」を8件作ります。言い方が違う依頼でも候補に挙がりやすくなります。
+- 質問や「〜の違いを教えて」には候補を出さず、作業の依頼にだけ渡します。
+- Skill Suggestを作り直し、普段の依頼の傾向から、スキル設定の見直しと公開スキルを提案します。
+- スキルの健康診断を追加しました。Skill Suggestに「スキルを診断して」と頼むと、選ばれにくいスキルと役割が重なるスキルの組を挙げ、説明の直し案を確かめられます。
+- スキル名の途中の語（`subject-line` の `line` など）だけが一致したスキルを、1つに絞ってよい候補として扱わないようにしました。
+- 説明が複数行に折り返されたSKILL.mdで、2行目以降が索引から抜けていた不具合を直しました。
+
+詳しくは [変更履歴](CHANGELOG.md) を見てください。
 
 ## 導入
 
-Claude Codeは `/plugin marketplace add AMZ-jpcslr/skill-router` と `/plugin install skill-router@skill-router-preview` で導入します。Codex Desktopは配布ZIPを展開してそのフォルダを残し、[README](README.md)の手順で導入してください。以前の版を入れている場合は、先に `codex plugin marketplace remove skill-router-preview` を実行します。導入後、検索語を1回作ってください。
+Claude Codeは `/plugin marketplace add AMZ-jpcslr/skill-router` と `/plugin install skill-router@skill-router-preview` で導入します。導入済みの場合は `/plugin marketplace update skill-router-preview` で更新します。Codex Desktopは配布ZIPを展開してそのフォルダを残し、[README](README.md)の手順で導入してください。以前の版を入れている場合は、先に `codex plugin marketplace remove skill-router-preview` を実行します。
+
+検索語をまだ作っていない場合は、READMEの「検索語を作る（初回に1回）」を1回だけ実行してください。以前の版で作った検索語は、更新後の最初の依頼のときに裏で一度だけ作り直されます。
 
 この配布物は [MITライセンス](LICENSE) です。最適な候補が見つからない場合や、候補が見つかってもエージェントが使わない場合があります。スキルの自動インストールは行いません。配布ZIPのSHA-256は同梱のチェックサムファイルで照合できます。
