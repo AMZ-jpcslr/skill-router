@@ -219,6 +219,26 @@ def catalog(L):
 
 
 def soft_matcher(L, rows, trust=None):
+    """A shortlist (k > 1) merges two rankings by position: shared rare words, which
+    find a skill named in the request (typescript, swift), and coverage of the whole
+    request, which keeps one frequent word from pushing unrelated entries up. An entry
+    both rank high leads; one only a single ranking finds still has a place. A single
+    best entry (k = 1) is decided by shared words alone."""
+    words, cover = word_matcher(L, rows, trust), coverage_matcher(L, rows, trust)
+
+    def match(text, k=1, keep=0.75):
+        if k == 1:
+            return words(text)
+        score = {}
+        for ranked in (cover(text, k, keep), words(text, k, keep)):
+            for i, r in enumerate(ranked):
+                key = r["path"]
+                score[key] = (score.get(key, (0, r))[0] + 1 / (10 + i), r)
+        return [r for _, r in sorted(score.values(), key=lambda x: (-x[0], x[1]["name"]))[:k]]
+    return match
+
+
+def word_matcher(L, rows, trust=None):
     """Looser than routing: which catalogue entry a request is most about.
     Shared words (product, tool and file-format names) and the Japanese stretches of the
     request that an entry also says, each weighted by how rare it is across the entries;
@@ -314,6 +334,122 @@ def soft_matcher(L, rows, trust=None):
             return near[0]
         # Near-equal public entries: an official or curated source settles it; a tie
         # within the same tier, or with an installed skill, stays unresolved.
+        tiers = sorted(near, key=lambda r: TRUST.get((trust or {}).get(r.get("source")), 9))
+        a, b = (TRUST.get((trust or {}).get(r.get("source")), 9) for r in tiers[:2])
+        return tiers[0] if a < b and all(r.get("source") != "local" for r in near) else None
+    return match
+
+
+def coverage_matcher(L, rows, trust=None):
+    """Rank entries by how much of the request they cover, not by how many words they share.
+
+    The request is split into its content terms: Latin words and the kanji/katakana
+    stretches between particles (Slackに通知を送りたい -> slack, 通知). Each term is
+    weighted by how rare it is across the entries. An entry earns a term when its name,
+    search terms or description say it (fields weighted in that order; a Japanese term
+    partly said, 動画制作 by 動画作成, earns that part). The score is the weighted share
+    of the request covered, times how strongly it is covered, so one frequent word
+    cannot outrank an entry that answers the whole request."""
+    import math
+    O = L["OPEN"]
+    norm_ = O["normalize"]
+    CHUNK = re.compile(r"[a-z][a-z0-9+#]{1,}|[\u30a1-\u30ff\u30fc]{2,}|[\u3400-\u9fff]{2,}|[\u3400-\u9fff\u30a1-\u30ff\u30fc]{2,}")
+    docs = []
+    for r in rows:
+        name = norm_(r["name"].replace("-", " "))
+        kw = norm_(" | ".join(r.get("keywords") or []))
+        desc = norm_(r.get("description", ""))
+        docs.append((name, kw, desc, O["features"](name + " " + kw + " " + desc)[2], [O["features"](k)[2] for k in r.get("keywords") or []]))
+    size = max(1, len(rows))
+    cache = {}
+
+    def df(term):
+        if term not in cache:
+            cache[term] = sum(term in d[0] or term in d[1] or term in d[2] for d in docs)
+        return cache[term]
+
+    def latin_in(term, text):
+        return re.search(r"(?<![a-z0-9])" + re.escape(term), text) is not None
+
+    def query_terms(text):
+        """Content terms, and the sides of the request they belong to: a Japanese request
+        and the English rewording beside it say the same work twice, so each side is
+        covered on its own rather than counting 通知 and notification as two needs."""
+        stop = set(O["GENERIC"]) | {"want", "need", "help", "how", "make", "create", "write", "use", "new"}
+        sides = {"jp": [], "en": []}
+        for token in norm_(text).split():
+            side = "jp" if re.search(r"[\u3040-\u30ff\u3400-\u9fff]", token) else "en"
+            for t in re.findall(r"[\u3400-\u9fff\u30a1-\u30ff\u30fc]+|[a-z][a-z0-9+#.]*", token):
+                t = t.strip(".")
+                if re.match(r"[a-z]", t):
+                    if len(t) >= 2 and t not in stop:
+                        sides[side].append((t, "latin"))
+                elif len(t) >= 2:
+                    sides[side].append((t, "jp"))
+        groups = [list(dict.fromkeys(g)) for g in sides.values() if g]
+        terms = list(dict.fromkeys(t for g in groups for t in g))
+        return terms, groups, O["features"](norm_(text))[2]
+
+    def best_part(term, text):
+        """Longest piece of a Japanese term (2+ chars) that the text says."""
+        for n in range(len(term), 1, -1):
+            for i in range(len(term) - n + 1):
+                if term[i:i + n] in text:
+                    return n
+        return 0
+
+    def match(text, k=1, keep=0.75):
+        terms, groups, qc = query_terms(text)
+        if not terms:
+            return [] if k > 1 else None
+        weights = {}
+        for t, kind in terms:
+            n = df(t) if kind == "latin" else max(1, min(df(t[i:i + 2]) for i in range(len(t) - 1)))
+            weights[t] = math.log(1 + size / (1 + n))
+        targets = qc - O["OPS"]
+        scored = []
+        for r, (name, kw, desc, dc, kcon) in zip(rows, docs):
+            credit = {}
+            for t, kind in terms:
+                best = 0.0
+                for field, mult in ((name, 1.6), (kw, 1.3), (desc, 1.0)):
+                    if kind == "latin":
+                        part = 1.0 if latin_in(t, field) else 0.0
+                    else:
+                        n = best_part(t, field)
+                        part = n / len(t) if n >= 2 else 0.0
+                    best = max(best, part * mult)
+                if best:
+                    credit[t] = best
+            if not credit:
+                continue
+            cover, got, strength = 0.0, 0.0, 0.0
+            for g in groups:
+                g_got = sum(weights[t[0]] * min(credit.get(t[0], 0), 1.0) for t in g)
+                g_cover = g_got / (sum(weights[t[0]] for t in g) or 1.0)
+                if g_cover > cover:
+                    cover, got = g_cover, g_got
+                    strength = sum(weights[t[0]] * credit.get(t[0], 0) for t in g)
+            if not got:
+                continue
+            concept = 0.0
+            if targets and targets & dc:
+                concept += 0.15
+                if any(qc <= c for c in kcon):
+                    concept += 0.15
+            score = (cover + concept) * (strength / max(got, 1e-9)) * 10
+            scored.append((score, cover, -len(r.get("description", "")), r))
+        if not scored:
+            return [] if k > 1 else None
+        scored.sort(key=lambda x: (-x[0], x[2], x[3]["name"]))
+        top = scored[0][0]
+        if k > 1:
+            return [r for sc, cv, _, r in scored[:k] if cv >= 0.5 and sc >= top * keep]
+        if scored[0][1] < 0.6:
+            return None
+        near = [r for sc, _, _, r in scored if sc > top * 0.9]
+        if len(near) == 1:
+            return near[0]
         tiers = sorted(near, key=lambda r: TRUST.get((trust or {}).get(r.get("source")), 9))
         a, b = (TRUST.get((trust or {}).get(r.get("source")), 9) for r in tiers[:2])
         return tiers[0] if a < b and all(r.get("source") != "local" for r in near) else None
