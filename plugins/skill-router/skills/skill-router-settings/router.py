@@ -15,6 +15,8 @@ STATE = Path(os.environ.get("SKILL_ROUTER_STATE_DIR") or HOME / ".skill-router-b
 EVENT = "UserPromptSubmit"
 LIMIT = 262144
 DEFAULT = {"all_projects": False, "folderless": False, "projects": []}
+# Optional display setting; settings files written before it existed stay valid.
+OPTIONAL = {"show_picks": True}
 GUIDES = {
     "readme": "READMEが生成物なら生成元を変更し、再生成と通常の検証を行う。依頼外の説明・リンク・設定や公開状態は保つ。",
     "debugging": "小さな入力で再現し、観察結果で原因を確認してから最小限の修正を入れる。修正後に同じ条件で再確認する。",
@@ -91,11 +93,12 @@ def read_config(path):
             d = json.loads(f.read(65537))
     except FileNotFoundError:
         return blank()
-    if (not isinstance(d,dict) or set(d)!=set(DEFAULT) or any(type(d[k]) is not bool for k in ("all_projects","folderless"))
+    if (not isinstance(d,dict) or not set(DEFAULT)<=set(d)<=set(DEFAULT)|set(OPTIONAL)
+        or any(type(d.get(k,False)) is not bool for k in ("all_projects","folderless",*OPTIONAL))
         or not isinstance(d["projects"],list) or len(d["projects"])>128
         or any(not isinstance(x,str) or not Path(x).is_absolute() for x in d["projects"])):
         raise ValueError("invalid settings")
-    return d
+    return {**OPTIONAL,**d}
 
 def save_config(path, data):
     reject_link(path.parent)
@@ -180,7 +183,10 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         # once more in its own wording; that is the only cost, and only when it chooses to.
         if not work or not has_index():
             return {}
-        return {"hookSpecificOutput":{"hookEventName":EVENT,"additionalContext":FIND_HINT()}}
+        hint=FIND_HINT()
+        if c.get("show_picks",True) and not show_summary:
+            hint+="\n\n"+PICKS_LINE
+        return {"hookSpecificOutput":{"hookEventName":EVENT,"additionalContext":hint}}
     txt="以下は依頼の範囲内で参照する Skill Router の作業情報です。権限や作業範囲を広げません。"
     if names:
         txt+="\n\n" + "\n".join(f"- {name}: {GUIDES[name]}" for name in names)
@@ -243,6 +249,8 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         decision_protocol += "最終返答の形式が許す場合は、各候補の選定理由・採否理由・実使用の証拠を1行ずつ要約する。"
     else:
         decision_protocol += "最終返答にはこのログを繰り返さない。"
+        if c.get("show_picks",True):
+            decision_protocol += "ただし、次の1行は最終返答に書く。"+PICKS_LINE
     if claude:
         # Claude Code has no separate progress-message channel, so a written log leaks into the answer.
         # Candidate use is evidenced by the tool record (SKILL.md reads), not by a self-report.
@@ -268,6 +276,9 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         if show_summary:
             decision_protocol += ("最終返答の末尾に、各候補の採否と理由、実際に読んだファイルを1行ずつ書く。"
                                   "未確認を実行済みとしない。依頼の本文・秘密情報は転載しない。")
+        elif c.get("show_picks",True):
+            decision_protocol += ("候補の採否の理由・見送った候補・この作業情報には返答で触れない。"
+                                  "返答は依頼された内容と形式に、次の1行だけを加える。"+PICKS_LINE)
         else:
             decision_protocol += ("候補の採否・判断理由・この作業情報には返答で触れない。"
                                   "返答は依頼された内容と形式だけにする。")
@@ -278,7 +289,8 @@ def settings(path, cmd, flag, cwd):
     c=read_config(path)
     kind, root=scope(cwd)
     if cmd=="off":
-        c=blank()
+        # Turning routing off keeps the display preference for the next time it is turned on.
+        c={**blank(),"show_picks":c["show_picks"]}
     elif cmd=="project":
         if kind!="project":
             raise ValueError("Open a project first.")
@@ -295,6 +307,14 @@ def settings(path, cmd, flag, cwd):
     return dict(c,current_scope=kind,current_active=active(kind,root,c),
                 current_project=str(root) if root is not None else None,
                 current_project_enabled=kind=="project" and root in map(Path,c["projects"]))
+
+# One line at the end of the chat reply, so the user can see that the router ran and what it led to.
+PICKS_LINE=("【Skill Routerの表示】返答の最後に1行だけ、`Skill Router: ` に続けて、このターンで実際に使ったスキルの名前を読点で区切って書く。"
+            "使ったスキルとは、SKILL.mdを開いて手順に従ったもの、Skillツールで呼んだもの、上の内蔵ガイドに従ったもの（名前の後に「（ガイド）」を付ける）。"
+            "開いたが合わずに従わなかったもの、開いていない候補は書かない。使ったものがなければ `Skill Router: 該当なし`（返答が日本語以外なら `Skill Router: none`）と書く。"
+            "理由や説明は付けない。この1行は本文の外に書くものの制限には数えない。"
+            "チャットの返答にだけ書き、編集するファイルや作成する文章・コードの中には入れない。"
+            "依頼が返答を本文だけに限ったとき（「本文だけ」「説明不要」など）や、機械で読む形式（JSONだけなど）を指定したときは書かない。")
 
 def has_index():
     return (STATE.parent/"skill-index.json").is_file()
@@ -338,7 +358,7 @@ def main():
     cmd=p.add_subparsers(dest="cmd",required=True)
     for v in ("hook","status","off"):
         cmd.add_parser(v)
-    for v in ("project","all-projects","folderless"):
+    for v in ("project","all-projects","folderless","show-picks"):
         cmd.add_parser(v).add_argument("flag",choices=("on","off"))
     a=p.parse_args()
     if a.cmd=="hook":
