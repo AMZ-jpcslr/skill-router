@@ -311,6 +311,13 @@ def main():
         except (OSError,ValueError,TypeError,KeyError,RuntimeError) as err:
             print(f"Index: {type(err).__name__}",file=sys.stderr)
             return 1
+    if len(sys.argv)>1 and sys.argv[1]=="doctor":
+        # Health check of the installed skills' descriptions; reads the index, writes no SKILL.md.
+        try:
+            return runpy.run_path(str(Path(__file__).resolve().with_name("doctor.py")))["command"](sys.argv[2:])
+        except (OSError,ValueError,TypeError,KeyError,RuntimeError) as err:
+            print(f"Doctor: {type(err).__name__}",file=sys.stderr)
+            return 1
     p=argparse.ArgumentParser(description=__doc__)
     cmd=p.add_subparsers(dest="cmd",required=True)
     for v in ("hook","status","off"):
