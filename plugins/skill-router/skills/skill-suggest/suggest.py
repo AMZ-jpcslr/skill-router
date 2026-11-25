@@ -199,6 +199,18 @@ def engine():
     return L, R
 
 
+def borrow_keywords(records, L):
+    """An installed skill that is also in the catalogue, under the same name and without
+    search terms of its own, takes the catalogue's (written from the same description)."""
+    try:
+        rows, _ = catalog(L)
+    except (OSError, ValueError, KeyError):
+        return records
+    terms = {r["name"]: r["keywords"] for r in rows if r.get("keywords")}
+    return [r if r.get("keywords") or r["name"] not in terms else dict(r, keywords=terms[r["name"]], borrowed_keywords=True)
+            for r in records]
+
+
 def catalog(L):
     raw = json.loads((HERE / "catalog.json").read_text(encoding="utf-8"))
     sources = {s["id"]: s for s in raw["sources"]}
@@ -207,6 +219,26 @@ def catalog(L):
 
 
 def soft_matcher(L, rows, trust=None):
+    """A shortlist (k > 1) merges two rankings by position: shared rare words, which
+    find a skill named in the request (typescript, swift), and coverage of the whole
+    request, which keeps one frequent word from pushing unrelated entries up. An entry
+    both rank high leads; one only a single ranking finds still has a place. A single
+    best entry (k = 1) is decided by shared words alone."""
+    words, cover = word_matcher(L, rows, trust), coverage_matcher(L, rows, trust)
+
+    def match(text, k=1, keep=0.75):
+        if k == 1:
+            return words(text)
+        score = {}
+        for ranked in (cover(text, k, keep), words(text, k, keep)):
+            for i, r in enumerate(ranked):
+                key = r["path"]
+                score[key] = (score.get(key, (0, r))[0] + 1 / (10 + i), r)
+        return [r for _, r in sorted(score.values(), key=lambda x: (-x[0], x[1]["name"]))[:k]]
+    return match
+
+
+def word_matcher(L, rows, trust=None):
     """Looser than routing: which catalogue entry a request is most about.
     Shared words (product, tool and file-format names) and the Japanese stretches of the
     request that an entry also says, each weighted by how rare it is across the entries;
@@ -217,11 +249,12 @@ def soft_matcher(L, rows, trust=None):
     df = Counter()
     strip = lambda w: re.sub(r"[\u3041-\u309f\s]+", "", w)
     for r in rows:
-        kws.append([strip(O["normalize"](k)) for k in r.get("keywords") or []])
+        kws.append(([strip(O["normalize"](k)) for k in r.get("keywords") or []],
+                    [O["features"](k)[2] for k in r.get("keywords") or []]))
         text = O["normalize"](r["name"].replace("-", " ") + " " + r["description"] + " " + " ".join(r.get("keywords") or []))
         name = O["features"](r["name"].replace("-", " "))
         meta = O["features"](text)
-        feats.append((name[0], meta[0], meta[1]))
+        feats.append((name[0], meta[0], meta[1], meta[2]))
         texts.append(text)
         df.update(meta[0])
     size = max(1, len(rows))
@@ -257,7 +290,7 @@ def soft_matcher(L, rows, trust=None):
                 i = j
         return out
 
-    def match(text, k=1):
+    def match(text, k=1, keep=0.75):
         parts = O["work_clauses"](text) or [text]
         query = O["normalize"](" ".join(parts))
         ql, qj, qc = O["features"](query)
@@ -265,7 +298,7 @@ def soft_matcher(L, rows, trust=None):
         if not ql and not qj:
             return [] if k > 1 else None
         scored = []
-        for r, (nl, dl, dj), body, kw in zip(rows, feats, texts, kws):
+        for r, (nl, dl, dj, dc), body, (kw, kconcepts) in zip(rows, feats, texts, kws):
             lat = ql & dl
             grams = qj & dj
             if not lat and not grams:
@@ -276,17 +309,24 @@ def soft_matcher(L, rows, trust=None):
                   any(p in k and 2 * len(p) >= len(k) for k in kw) or (len(p) >= 3 and p in body[:len(body) - len(" ".join(r.get("keywords") or []))]))}
             # Operation words alone (作成, 修正) say what to do, not what about.
             jp = {p for p in jp if not (O["features"](p)[2] and O["features"](p)[2] <= O["OPS"])}
-            if not lat and not jp:
+            # Without a shared word, one short stretch (入力, 計算) is too little to go on,
+            # unless it names the same subject the router recognises in both (動画: video).
+            if not lat and not (len(jp) >= 2 or any(len(p) >= 3 for p in jp) or (jp and (qc & dc) - O["OPS"])):
                 continue
+            # The same subject and operation in both, whatever the words (動画制作 and
+            # "video creation" are both video + create), as the router's concepts tell.
             score = (sum(idf(df[t]) * (1.6 if t in nl else 1.0) for t in lat)
-                     + sum(idf(span_df(p)) for p in jp))
+                     + sum(idf(span_df(p)) for p in jp)
+                     + (1.5 * len(qc & dc) if (qc & dc) - O["OPS"] else 0)
+                     # One of its search terms means the whole request: 動画作成 for 動画制作.
+                     + (3.0 if qc - O["OPS"] and any(qc <= c for c in kconcepts) else 0))
             scored.append((score, -len(r["description"]), r))
         if not scored:
             return [] if k > 1 else None
         scored.sort(key=lambda x: (-x[0], x[1], x[2]["name"]))
         top = scored[0][0]
         if k > 1:
-            return [r for sc, _, r in scored[:k] if sc >= 4.0 and sc >= top * 0.75]
+            return [r for sc, _, r in scored[:k] if sc >= 4.0 and sc >= top * keep]
         if top < 4.0:
             return None
         near = [r for sc, _, r in scored if sc > top * 0.9]
@@ -294,6 +334,122 @@ def soft_matcher(L, rows, trust=None):
             return near[0]
         # Near-equal public entries: an official or curated source settles it; a tie
         # within the same tier, or with an installed skill, stays unresolved.
+        tiers = sorted(near, key=lambda r: TRUST.get((trust or {}).get(r.get("source")), 9))
+        a, b = (TRUST.get((trust or {}).get(r.get("source")), 9) for r in tiers[:2])
+        return tiers[0] if a < b and all(r.get("source") != "local" for r in near) else None
+    return match
+
+
+def coverage_matcher(L, rows, trust=None):
+    """Rank entries by how much of the request they cover, not by how many words they share.
+
+    The request is split into its content terms: Latin words and the kanji/katakana
+    stretches between particles (Slackに通知を送りたい -> slack, 通知). Each term is
+    weighted by how rare it is across the entries. An entry earns a term when its name,
+    search terms or description say it (fields weighted in that order; a Japanese term
+    partly said, 動画制作 by 動画作成, earns that part). The score is the weighted share
+    of the request covered, times how strongly it is covered, so one frequent word
+    cannot outrank an entry that answers the whole request."""
+    import math
+    O = L["OPEN"]
+    norm_ = O["normalize"]
+    CHUNK = re.compile(r"[a-z][a-z0-9+#]{1,}|[\u30a1-\u30ff\u30fc]{2,}|[\u3400-\u9fff]{2,}|[\u3400-\u9fff\u30a1-\u30ff\u30fc]{2,}")
+    docs = []
+    for r in rows:
+        name = norm_(r["name"].replace("-", " "))
+        kw = norm_(" | ".join(r.get("keywords") or []))
+        desc = norm_(r.get("description", ""))
+        docs.append((name, kw, desc, O["features"](name + " " + kw + " " + desc)[2], [O["features"](k)[2] for k in r.get("keywords") or []]))
+    size = max(1, len(rows))
+    cache = {}
+
+    def df(term):
+        if term not in cache:
+            cache[term] = sum(term in d[0] or term in d[1] or term in d[2] for d in docs)
+        return cache[term]
+
+    def latin_in(term, text):
+        return re.search(r"(?<![a-z0-9])" + re.escape(term), text) is not None
+
+    def query_terms(text):
+        """Content terms, and the sides of the request they belong to: a Japanese request
+        and the English rewording beside it say the same work twice, so each side is
+        covered on its own rather than counting 通知 and notification as two needs."""
+        stop = set(O["GENERIC"]) | {"want", "need", "help", "how", "make", "create", "write", "use", "new"}
+        sides = {"jp": [], "en": []}
+        for token in norm_(text).split():
+            side = "jp" if re.search(r"[\u3040-\u30ff\u3400-\u9fff]", token) else "en"
+            for t in re.findall(r"[\u3400-\u9fff\u30a1-\u30ff\u30fc]+|[a-z][a-z0-9+#.]*", token):
+                t = t.strip(".")
+                if re.match(r"[a-z]", t):
+                    if len(t) >= 2 and t not in stop:
+                        sides[side].append((t, "latin"))
+                elif len(t) >= 2:
+                    sides[side].append((t, "jp"))
+        groups = [list(dict.fromkeys(g)) for g in sides.values() if g]
+        terms = list(dict.fromkeys(t for g in groups for t in g))
+        return terms, groups, O["features"](norm_(text))[2]
+
+    def best_part(term, text):
+        """Longest piece of a Japanese term (2+ chars) that the text says."""
+        for n in range(len(term), 1, -1):
+            for i in range(len(term) - n + 1):
+                if term[i:i + n] in text:
+                    return n
+        return 0
+
+    def match(text, k=1, keep=0.75):
+        terms, groups, qc = query_terms(text)
+        if not terms:
+            return [] if k > 1 else None
+        weights = {}
+        for t, kind in terms:
+            n = df(t) if kind == "latin" else max(1, min(df(t[i:i + 2]) for i in range(len(t) - 1)))
+            weights[t] = math.log(1 + size / (1 + n))
+        targets = qc - O["OPS"]
+        scored = []
+        for r, (name, kw, desc, dc, kcon) in zip(rows, docs):
+            credit = {}
+            for t, kind in terms:
+                best = 0.0
+                for field, mult in ((name, 1.6), (kw, 1.3), (desc, 1.0)):
+                    if kind == "latin":
+                        part = 1.0 if latin_in(t, field) else 0.0
+                    else:
+                        n = best_part(t, field)
+                        part = n / len(t) if n >= 2 else 0.0
+                    best = max(best, part * mult)
+                if best:
+                    credit[t] = best
+            if not credit:
+                continue
+            cover, got, strength = 0.0, 0.0, 0.0
+            for g in groups:
+                g_got = sum(weights[t[0]] * min(credit.get(t[0], 0), 1.0) for t in g)
+                g_cover = g_got / (sum(weights[t[0]] for t in g) or 1.0)
+                if g_cover > cover:
+                    cover, got = g_cover, g_got
+                    strength = sum(weights[t[0]] * credit.get(t[0], 0) for t in g)
+            if not got:
+                continue
+            concept = 0.0
+            if targets and targets & dc:
+                concept += 0.15
+                if any(qc <= c for c in kcon):
+                    concept += 0.15
+            score = (cover + concept) * (strength / max(got, 1e-9)) * 10
+            scored.append((score, cover, -len(r.get("description", "")), r))
+        if not scored:
+            return [] if k > 1 else None
+        scored.sort(key=lambda x: (-x[0], x[2], x[3]["name"]))
+        top = scored[0][0]
+        if k > 1:
+            return [r for sc, cv, _, r in scored[:k] if cv >= 0.5 and sc >= top * keep]
+        if scored[0][1] < 0.6:
+            return None
+        near = [r for sc, _, _, r in scored if sc > top * 0.9]
+        if len(near) == 1:
+            return near[0]
         tiers = sorted(near, key=lambda r: TRUST.get((trust or {}).get(r.get("source")), 9))
         a, b = (TRUST.get((trust or {}).get(r.get("source")), 9) for r in tiers[:2])
         return tiers[0] if a < b and all(r.get("source") != "local" for r in near) else None
@@ -335,8 +491,8 @@ def analyse(days=60, today=None, include_public=True):
     used = read_skill_use(since, budget)
     index = L["read_json"](L["INDEX"], {})
     all_records = index.get("records", []) if isinstance(index, dict) else []
-    records = L["with_keywords"](L["one_per_name"](all_records))
-    prepared = L["prepared_features"](records)
+    records = borrow_keywords(L["with_keywords"](L["one_per_name"](all_records)), L)
+    prepared = L["prepared_features"](records, save=False)
     names = {r["name"] for r in all_records}
     work_clauses = L["OPEN"]["work_clauses"]
     stop = stop_terms(L)
@@ -494,30 +650,47 @@ def analyse(days=60, today=None, include_public=True):
                 term_days[w].add(day)
     report["gaps"] = [{"term": w, "days": len(d)} for w, d in sorted(term_days.items(), key=lambda kv: (-len(kv[1]), kv[0])) if len(d) >= 3][:10]
     report["uncovered_requests"] = len(uncovered)
+    # Too little history to infer anything: offer the official and curated skills not yet
+    # installed, ordered by how trusted their source is, and the ways to look further.
+    if work < 10 and include_public:
+        rows, sources = catalog(L)
+        fresh = [r for r in rows if r["name"] not in names
+                 and TRUST.get(sources.get(r["source"], {}).get("trust"), 9) <= 1]
+        fresh.sort(key=lambda r: (TRUST.get(sources[r["source"]].get("trust"), 9), r["kind"] != "skill", r["name"]))
+        report["starter"] = {"reason": "little_history", "work_requests": work,
+                             "public": [public_row(r, sources) for r in fresh[:8]], "more": len(fresh) - min(8, len(fresh)),
+                             "next": ["find", "topics", "browse"]}
     return report
 
 
 def find(description, include_public=True):
     """One-shot: which installed or public skill fits work described in words."""
     L, R = engine()
+    # Every candidate is a skill, so the word itself ("使えるスキルは？") says nothing.
+    description = re.sub(r"(?i)\bskills?\b|スキル", " ", description)
     index = L["read_json"](L["INDEX"], {})
-    records = L["with_keywords"](L["one_per_name"](index.get("records", []) if isinstance(index, dict) else []))
+    records = borrow_keywords(L["with_keywords"](L["one_per_name"](index.get("records", []) if isinstance(index, dict) else [])), L)
     guides = R["narrow_pick"]("。".join(L["OPEN"]["work_clauses"](description)))
     local = [{"skill": r["name"], "path": r["path"], "basis": "router"}
-             for _, r in L["rank"](description, records, guides, None, L["prepared_features"](records))]
+             for _, r in L["rank"](description, records, guides, None, L["prepared_features"](records, save=False))]
     rows, sources = catalog(L) if include_public else ([], {})
     have = {r["name"] for r in records}
     pool = [dict(r, source="local") for r in records] + [r for r in rows if r["name"] not in have]
     trust = {k: v.get("trust") for k, v in sources.items()}
-    near = soft_matcher(L, without_keywords(pool), trust)(description, 5)
-    if not any(r["source"] == "local" for r in near):
-        near = soft_matcher(L, pool, trust)(description, 5)
+    # A wider shortlist than routing: the agent reads each description and keeps only
+    # those whose purpose fits (see SKILL.md), as it does for the router's candidates.
+    near = soft_matcher(L, without_keywords(pool), trust)(description, 8, 0.5)
     known = {x["skill"] for x in local}
-    local += [{"skill": r["name"], "path": r["path"], "basis": "description_overlap"}
+    summary = {r["name"]: L["summary"](r.get("description", ""), 200) for r in records}
+    for x in local:
+        x["description"] = summary.get(x["skill"], "")
+    local += [{"skill": r["name"], "path": r["path"], "basis": "description_overlap", "description": summary[r["name"]]}
               for r in near if r["source"] == "local" and r["name"] not in known]
-    out = {"local": local[:5], "builtin_guides": guides, "public": []}
-    if not local:
-        out["public"] = [public_row(r, sources) for r in near if r["source"] != "local"][:3]
+    out = {"local": local[:8], "builtin_guides": guides, "public": []}
+    # Unless the router itself found one, public skills are listed for the agent to weigh too.
+    if include_public and not any(x["basis"] == "router" for x in local):
+        public = soft_matcher(L, pool[len(records):], trust)(description, 5, 0.5)
+        out["public"] = [public_row(r, sources) for r in public]
     if not (local or guides or out["public"]):
         out["elsewhere"] = elsewhere(have)
     return out
@@ -533,7 +706,7 @@ def elsewhere(installed):
 def browse_pool(L):
     index = L["read_json"](L["INDEX"], {})
     records = L["one_per_name"](index.get("records", []) if isinstance(index, dict) else [])
-    records = L["with_keywords"](records)
+    records = borrow_keywords(L["with_keywords"](records), L)
     rows, sources = catalog(L)
     have = {r["name"] for r in records}
     return records, [r for r in rows if r["name"] not in have], sources

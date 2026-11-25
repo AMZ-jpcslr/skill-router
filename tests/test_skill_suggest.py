@@ -121,7 +121,26 @@ class SkillSuggest(unittest.TestCase):
         M = runpy.run_path(str(SUGGEST))
         out = M["find"]("Terraformのモジュールを整理して")
         self.assertEqual([x["skill"] for x in out["local"]], ["terraform-modules"])
-        self.assertEqual(out["public"], [])
+        # Found by the router: no public alternatives are pushed.
+        if out["local"][0]["basis"] == "router":
+            self.assertEqual(out["public"], [])
+
+    def test_installed_copy_borrows_catalogue_terms(self):
+        # An English-only installed skill that is also in the catalogue is found from Japanese.
+        self.index(skill(self.home, ".agents/skills", "remotion",
+                         "Best practices for Remotion - video creation in React."))
+        M = runpy.run_path(str(SUGGEST))
+        out = M["find"]("動画制作に使えるスキルは？")
+        self.assertIn("remotion", [x["skill"] for x in out["local"]])
+        self.assertNotIn("remotion", [x["skill"] for x in out["public"]])
+
+    def test_little_history_gets_a_starter_list(self):
+        self.index(skill(self.home, ".agents/skills", "apology-letters", "Formal apology letter templates."))
+        self.claude_history([(0, "ありがとう")])
+        out = self.report()
+        self.assertEqual(out["starter"]["reason"], "little_history")
+        self.assertTrue(out["starter"]["public"])
+        self.assertTrue(all(x["trust"] in ("official", "curated") for x in out["starter"]["public"]))
 
     def test_topics_and_browse(self):
         p = skill(self.home, ".agents/skills", "deck-maker", "Build slide decks from notes. Presentation slides.")
