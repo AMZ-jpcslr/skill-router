@@ -16,3 +16,4 @@ disable-model-invocation: true
 - 「索引を更新」「入っているスキルを登録して」など、利用者が明示したときに router.py index refresh を呼ぶ。追加・変更・削除のあとも同じ操作。変更のないファイルは再読込しない。
 - router.py index status で件数と追加の置き場を確認する。明示指定があれば router.py index add-root <絶対パス> / router.py index remove-root <絶対パス> で切り替える。権限を変更せず、利用者が指定したスキル保管フォルダだけを設定する。追加・削除後は index refresh を実行する。
 - 日本語の依頼でも候補が見つかるよう、Claude Codeで利用者が「キーワードも作って」など明示したときは `router.py index refresh --keywords` を呼ぶ。新規・変更のあったスキルだけについて、スキル名と説明の抜粋を `claude -p`（既定はhaiku、ツールなし）に渡し、日本語のキーワードと別名を書かせて索引の隣に保存する。利用者の依頼文は送らない。件数が多いと数分かかり、利用者のClaude Codeの利用枠を使うことを先に伝える。`--limit <件数>` で一度に作る件数を絞れる。結果の `keywords_failed` が0でなければ、失敗した件数をそのまま伝える。`keywords_error` が返ったときはキーワードが1件も作られていないので、その理由（claude が見つからない場合は環境変数 CLAUDE_EXE で場所を指定できる）を伝える。
+- 「スキルを診断して」と明示されたら `router.py doctor` を実行する。読み方と直し案の出し方は skill-suggest の SKILL.md の「スキルの健康診断」に従う。SKILL.md は書き換えない。
