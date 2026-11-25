@@ -68,7 +68,9 @@ class PackagedReadmeRouting(unittest.TestCase):
                                 if f'"name": "{name}"' in context}
                     self.assertEqual(received, expected)
                     self.assertEqual("- readme:" in context, "readme" in expected)
-                    self.assertEqual(bool(context), bool(expected))
+                    # With nothing matched, only the line on searching in the agent's own words is added.
+                    rest = context.split("導入済みスキルの候補が上になく")[0]
+                    self.assertEqual(bool(rest.strip()), bool(expected))
 
 
 if __name__ == "__main__":

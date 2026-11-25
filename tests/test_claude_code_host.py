@@ -64,6 +64,22 @@ class ClaudeCodeHost(unittest.TestCase):
         self.assertIn('"summary": "Japanese writing and Japanese proofreading; polish Japanese prose."', txt)
         self.assertIn("SKILL.mdをReadで1回開いて", txt)
 
+    def test_agent_can_search_in_its_own_words(self):
+        """Nothing matches the user's words; the hook names one command, and the agent's wording finds the skill."""
+        skill = self.home / ".agents/skills/apology-letters/SKILL.md"
+        skill.parent.mkdir(parents=True)
+        skill.write_text("---\nname: apology-letters\ndescription: Write apology emails and letters to clients.\n---\n", encoding="utf-8")
+        env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
+        router = PLUGIN / "skills/skill-router-settings/router.py"
+        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(router), "index", "refresh"],
+                       env=env, check=True, capture_output=True, timeout=30)
+        txt = self.context(self.run_hook({}, prompt="取引先に納期の遅れを詫びる連絡を書いて。"))
+        self.assertIn("index find", txt)
+        self.assertNotIn('"name"', txt)
+        r = subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(router), "index", "find", "write an apology email to a client"],
+                           env=env, check=True, capture_output=True, timeout=30)
+        self.assertEqual([c["name"] for c in json.loads(r.stdout)["candidates"]], ["apology-letters"])
+
     def add_native_skill(self):
         skill = self.home / ".claude/skills/nihongo-native/SKILL.md"
         skill.parent.mkdir(parents=True)
