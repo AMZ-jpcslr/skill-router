@@ -90,5 +90,22 @@ class FoldedDescription(unittest.TestCase):
             self.assertEqual(INDEX["metadata"](p), ("q", "Quoted and folded."))
 
 
+class BroadSkills(unittest.TestCase):
+    def test_a_guide_listing_several_tasks_is_not_a_specialist(self):
+        # A writing guide whose description lists PR descriptions and AI-sounding prose among
+        # its uses is not penalised as a PR or AI-writing specialist on another writing request.
+        guide = row("plain-writing", "Write and revise work documents in plain language: minutes, reports, "
+                    "PR descriptions, emails. Also flags text that sounds AI-generated.")
+        nc = OPEN["prepare"](guide)[1]
+        self.assertEqual(nc, frozenset())
+        named = OPEN["prepare"](row("changelog-automation", "Automate changelog generation from commits, PRs, and releases."))[1]
+        self.assertEqual(named, frozenset({"changelog"}))
+
+    def test_space_between_latin_and_japanese_does_not_hide_a_task(self):
+        # Japanese typesetting often writes "AI っぽい"; it names the same task as "AIっぽい".
+        self.assertIn("ai-writing", OPEN["features"]("AI っぽい文章を直す")[2])
+        self.assertIn("ai-writing", OPEN["features"]("AIっぽい文章を直す")[2])
+
+
 if __name__ == "__main__":
     unittest.main()

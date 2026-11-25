@@ -5,6 +5,11 @@ import math
 import re
 import unicodedata
 
+# The space Japanese typesetting puts between Latin letters and kana or kanji ("AI っぽい",
+# "PR の説明文") is spacing, not a word break: for the named tasks "AI っぽい" says what
+# "AIっぽい" says. (Words, files and URLs keep the space, which does end them.)
+WAOU_SPACE=re.compile(r"(?<=[a-z0-9])[ \u3000]+(?=[\u3040-\u30ff\u4e00-\u9fff])|(?<=[\u3040-\u30ff\u4e00-\u9fff])[ \u3000]+(?=[a-z0-9])")
+
 def normalize(text):
     return unicodedata.normalize("NFKC",text).casefold()
 
@@ -216,7 +221,8 @@ def features(value):
     for run in JP.findall(text):
         for n in (2,3):
             jp.update(run[i:i+n] for i in range(len(run)-n+1))
-    return (frozenset(latin),frozenset(jp),frozenset(k for k,p in PATTERNS.items() if p.search(text)))
+    tight=WAOU_SPACE.sub("",text)
+    return (frozenset(latin),frozenset(jp),frozenset(k for k,p in PATTERNS.items() if p.search(text) or p.search(tight)))
 
 
 # Cross-language verbs and artefacts. Match a structured operation, not an individual
@@ -413,6 +419,8 @@ def jp_words(text):
 def compact(text):
     return re.sub(r"\s+","",normalize(text))
 
+LEAD_SENTENCE=re.compile(r"(?<=。)|(?<=[.!?])\s+(?=[A-Z])")
+
 def prepare(row):
     """Everything the general retrieval needs from one skill row; cacheable per row."""
     n,d=row["name"],row["description"]
@@ -422,9 +430,16 @@ def prepare(row):
     name_words=frozenset(canonical(t) for t in normalize(n).split("-") if t)
     kw_words=frozenset().union(*(words(k) for k in keywords)) if keywords else frozenset()
     jp_kw=tuple(k for k in keywords if JP.search(k))
+    # The named tasks a skill is specialised in: those its name says (changelog-automation),
+    # or the one task its text names. A text naming several (a writing guide listing minutes,
+    # PR descriptions and AI-sounding prose) covers them among others.
+    told=meta[2]&TASKS
+    special=(features(n.replace("-"," "))[2]&TASKS)|(told if len(told)==1 else frozenset())
+    # Its scope, likewise, is what its name and first sentence say.
+    lead=LEAD_SENTENCE.split(positive.strip(),maxsplit=1)[0][:160]
     # Of the description's features only its concepts are used here; its words are below.
-    return (name_words, meta[2], (frozenset(),frozenset(),meta[2]),
-            frozenset(k for k,v in SCOPE.items() if v.search(n+" "+positive[:160])),
+    return (name_words, special, (frozenset(),frozenset(),meta[2]),
+            frozenset(k for k,v in SCOPE.items() if v.search(n+" "+lead)),
             words(positive), kw_words, jp_kw, jp_words(positive).union(*(jp_words(k) for k in jp_kw)))
 
 def pack(entry):
@@ -589,7 +604,7 @@ def score_skill(q,entry,wdf,gdf,size,row):
             evidence.add("file:"+f);strong=True
     # A named task the candidate never mentions; a specialisation the request did not ask for.
     if q.targets&TASKS and not hit&TASKS:score-=3.
-    score-=2.5*len((nc&TASKS)-q.concepts)
+    score-=2.5*len(nc-q.concepts)
     score-=2.7*len(scope-q.scope)
     required=re.search(r"(?i)\bfrom\s+([a-z][a-z0-9_-]+)\s+(?:projects?|workspaces?)\b",row["description"])
     if required and required.group(1).lower() not in q.words|q.context_words:score-=3.
