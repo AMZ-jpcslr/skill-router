@@ -385,10 +385,6 @@ WORD=re.compile(r"[a-z][a-z0-9+#]*")
 DOTTED=re.compile(r"(?<![a-z0-9.])([a-z][a-z0-9]*)\.(js|ts)(?![a-z0-9])")
 KATAKANA=re.compile(r"[ァ-ヿー]+")
 JP_WORD_RUN=re.compile(r"[ァ-ヿー]+|[㐀-鿿]+")
-# A message to be sent, posted or replied to through something ("Slackでチームに送る").
-MESSAGE_VERB=re.compile(r"送る|送り|送信|返信|返事|投稿|告知|周知|お知らせ|連絡|知らせ|案内")
-MEDIUM=re.compile(r"(?<![a-z0-9])([a-z][a-z0-9+#]*)\s?(?:で|に)(?![a-z])")
-DESTINATION=re.compile(r"(?<![a-z0-9])([a-z][a-z0-9+#]*)\s?(?:向け|用に|で(?:送|共有|配信|投稿|流|告知|周知)|に(?:送|投稿|載せ|貼|共有|流|返信|返す))")
 
 @lru_cache(maxsize=50000)
 def words(text):
@@ -487,14 +483,8 @@ class Query:
         self.text=whole
         self.compact=compact(whole)
         self.words=words(self.part)
-        p=normalize(self.part)
-        # Where the text goes ("Slack向けに", "LINEで送る") is not what the work is about.
-        dest={canonical(m.group(1)) for m in DESTINATION.finditer(p)}
-        if MESSAGE_VERB.search(p):dest|={canonical(m.group(1)) for m in MEDIUM.finditer(p)}
-        self.destinations=frozenset(dest)&self.words
-        self.words-=self.destinations
         # A named file's format ("xlsx" of "経費.xlsx") is weak context, never a skill's name.
-        self.context_words=(words(self.context)|file_formats(part+" "+context)|self.destinations)-self.words
+        self.context_words=(words(self.context)|file_formats(part+" "+context))-self.words
         self.jp=self.said_jp(whole,gdf)
         self.jp_part=self.said_jp(normalize(self.part),gdf)
         # Japanese words read in English through the catalogue's own vocabulary.
@@ -573,6 +563,16 @@ def score_skill(q,entry,wdf,gdf,size,row):
         score+=PHRASE_WEIGHT*best
         evidence.add("phrase")
         if best>=2.:strong=True
+    # A request written for the skill at index time that shares several words with this one
+    # ("取引先へのお詫びメールを書いて" for "納期遅れを取引先に詫びるメールを"): the closest one counts.
+    if EXAMPLE_WEIGHT:
+        near=0.
+        for k in jk:
+            same=q.jp_part&jp_words(k)
+            if len(same)>=2:near=max(near,sum(idf(x,gdf) for x in same))
+        if near:
+            score+=EXAMPLE_WEIGHT*near
+            evidence.add("example")
     # A task or medium named the same way by the request and the skill (commit, video), as
     # rare as it is in this catalogue.
     hit=q.targets&dc
@@ -602,6 +602,7 @@ def score_skill(q,entry,wdf,gdf,size,row):
     return score,evidence,strong
 
 THRESHOLD=7.0
+EXAMPLE_WEIGHT=.6
 STRONG_THRESHOLD=5.0
 JP_DOC_AVG=8
 JP_WEIGHT=1.2
