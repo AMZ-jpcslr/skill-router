@@ -9,6 +9,7 @@ disable-model-invocation: true
 - このプロジェクトだけを有効/無効: `router.py project on` / `router.py project off`。対象は現在のチャットの作業フォルダそのもの。親のGitルート・別フォルダは登録しない。別フォルダで有効にするなら、そのフォルダのチャットで操作する。結果の `current_project` と `current_project_enabled` を確認する。全プロジェクトがオンなら個別解除後も全体の対象になることを伝える。
 - 全プロジェクトを有効/無効: `router.py all-projects on` / `router.py all-projects off`
 - フォルダなしを有効/無効: `router.py folderless on` / `router.py folderless off`
+- 返答の最後に使ったスキルを1行で出す表示（`Skill Router: …`）をオン/オフ: `router.py show-picks on` / `router.py show-picks off`。初期状態はオン。`router.py off` をしても、この設定は保たれる。
 - すべてを無効: `router.py off`。個別登録も削除する。「両モードだけオフ」なら個別にオフにする。
 設定の変更は利用者が明示したときだけ行い、曖昧なら状態を返すか確認する。設定の反映とフックの信頼は別。レビューを回避しない。スクリプトが失敗したら設定が変わったと言わない。確認は処理結果に従い、依頼やファイルをこのスクリプトに渡さない。
 

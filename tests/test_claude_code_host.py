@@ -137,6 +137,39 @@ class ClaudeCodeHost(unittest.TestCase):
         txt = self.context(self.run_hook({}, PROMPT + "\nスキル判断を表示"))
         self.assertIn("最終返答の末尾に", txt)
 
+    def settings_cli(self, *args):
+        env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
+        r = subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-router-settings/router.py"), *args],
+                           env=env, cwd=self.project, capture_output=True, timeout=30)
+        self.assertEqual(r.returncode, 0, r.stderr.decode(errors="replace"))
+        return json.loads(r.stdout)
+
+    def test_picks_line_on_by_default_in_both_hosts(self):
+        for env in ({}, {"PLUGIN_ROOT": str(PLUGIN)}):
+            txt = self.context(self.run_hook(env))
+            self.assertIn("`Skill Router: ` に続けて", txt)
+            self.assertIn("Skill Router: 該当なし", txt)
+
+    def test_picks_line_on_no_match(self):
+        self.add_indexed_skill()
+        txt = self.context(self.run_hook({}, "このCSVの列名を英語に揃えて、重複行を消して。"))
+        self.assertIn("`Skill Router: ` に続けて", txt)
+
+    def test_picks_line_can_be_turned_off(self):
+        self.assertTrue(self.settings_cli("status")["show_picks"])
+        self.assertFalse(self.settings_cli("show-picks", "off")["show_picks"])
+        for env in ({}, {"PLUGIN_ROOT": str(PLUGIN)}):
+            txt = self.context(self.run_hook(env))
+            self.assertNotIn("Skill Router: ", txt)
+            self.assertIn("- readme:", txt)
+        # Turning routing off and on again keeps the display preference.
+        self.settings_cli("off")
+        self.assertFalse(self.settings_cli("project", "on")["show_picks"])
+
+    def test_detailed_summary_replaces_picks_line(self):
+        txt = self.context(self.run_hook({}, PROMPT + "\nスキル判断を表示"))
+        self.assertNotIn("`Skill Router: ` に続けて", txt)
+
     def test_opt_out_and_small_talk_are_silent(self):
         self.assertEqual(self.run_hook({}, PROMPT + "\n今回はスキルを使わないで"), {})
         self.assertEqual(self.run_hook({}, "123 + 456 はいくつ？"), {})
