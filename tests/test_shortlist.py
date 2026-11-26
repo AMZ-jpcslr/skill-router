@@ -1,6 +1,7 @@
 """The hook lists the next closest skills, beside its own picks, for the agent to weigh."""
 import json
 import os
+import runpy
 from pathlib import Path
 import subprocess
 import sys
@@ -40,9 +41,10 @@ class Shortlist(unittest.TestCase):
                              capture_output=True, check=True, timeout=20).stdout
         return json.loads(out) if out.strip() else {}
 
-    def context(self, prompt):
+    def context(self, prompt, session_id=None):
         payload = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt,
-                              "cwd": str(self.project)}).encode("utf-8")
+                              "cwd": str(self.project), **({"session_id": session_id} if session_id else {})}
+                             ).encode("utf-8")
         out = self.run_cli(["hook"], payload)
         return out.get("hookSpecificOutput", {}).get("additionalContext", "")
 
@@ -66,6 +68,31 @@ class Shortlist(unittest.TestCase):
 
     def test_no_list_without_work(self):
         self.assertNotIn(HEAD, self.context("ありがとう！"))
+
+    def test_listed_skills_of_the_latest_request_are_recorded(self):
+        context = self.context("Write the weekly status report for my team.", "s1")
+        files = list((self.home / ".skill-router-beta/sessions").glob("*.json")) or \
+            [f for f in self.home.rglob("sessions/*.json")]
+        state = json.loads(files[0].read_text(encoding="utf-8"))
+        self.assertEqual(sorted(Path(p).parent.name for p in state["last_listed"]),
+                         sorted({name for _, name in self.listed(context)}
+                                | {n for n in (f"report-writer-{i}" for i in range(40))
+                                   if f'"name": "{n}"' in context.split(HEAD, 1)[0]}))
+        # A later request with nothing close leaves an empty list, not the earlier one.
+        self.context("Translate this poem into Latin verse.", "s1")
+        state = json.loads(files[0].read_text(encoding="utf-8"))
+        self.assertEqual(state["last_listed"], [])
+
+
+class Snippet(unittest.TestCase):
+    def test_the_part_naming_the_request_is_kept(self):
+        L = runpy.run_path(str(PLUGIN / "skills/skill-router-settings/local_index.py"))
+        text = ("Use this skill any time a spreadsheet file is the primary input or output. This means any task "
+                "where the user wants to open, read, edit, or fix an existing .xlsx, .xlsm, .csv, or .tsv file.")
+        self.assertIn(".csv", L["snippet"](text, "このCSVの異常値を調べて", 120))
+        self.assertNotIn(".csv", L["snippet"](text, "表を作って", 120))
+        self.assertEqual(L["snippet"]("Short text.", "csv", 120), "Short text.")
+        self.assertLessEqual(len(L["snippet"](text, "csv", 120)), 120)
 
 
 if __name__ == "__main__":

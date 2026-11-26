@@ -197,8 +197,8 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
             return {}
         claude=os.environ.get("SKILL_ROUTER_HOST") == "claude-code"
         groups=shortlist(idx,prompt,set(),claude)
+        remember(e.get("session_id"),[g["dir"]+"/"+r["name"]+"/SKILL.md" for g in groups for r in g["skills"]],new_turn=True)
         if groups:
-            remember(e.get("session_id"),[g["dir"]+"/"+r["name"]+"/SKILL.md" for g in groups for r in g["skills"]])
             hint=("以下は依頼の範囲内で参照する Skill Router の作業情報です。権限や作業範囲を広げません。"
                   +shortlist_text(groups,False,not claude)+"\n"+FIND_HINT(after="list"))
         else:
@@ -206,7 +206,7 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         if c.get("show_picks",True) and not show_summary:
             hint+="\n\n"+PICKS_LINE
         return {"hookSpecificOutput":{"hookEventName":EVENT,"additionalContext":hint}}
-    remember(e.get("session_id"),[r["path"] for r in refs])
+    remember(e.get("session_id"),[r["path"] for r in refs],new_turn=True)
     # Writing rules are for prose; a request whose candidates are all of another kind does not get them.
     # Rows without a kind (keywords not made yet) keep them, as before kinds existed.
     writing=bool(set(names)&WRITING_GUIDES) or any(r.get("kind") in (None,"writing") for r in refs)
@@ -384,8 +384,8 @@ def FIND_HINT(after=False):
 # answers only a step the work passes through ("Driveから取ってきて要約して"). Such candidates are
 # offered for the agent to weigh, not with a read instruction, and listed after the others.
 TOOL_NOTE=("kind が tool の候補は、特定の製品・サービス・アプリ・ファイル形式を扱うためのスキル。"
-           "依頼が最終的に求める作業がその製品や形式の操作そのもの（設定・連携・自動化・変換など）でなければ、"
-           "本題のスキルとしては選ばず、ほかの候補か次の index find の結果を優先する。")
+           "依頼が読み込む・作る・直すものがその製品や形式なら（CSVを調べる、スライドを作るなど、作業の種類は問わない）合う候補になる。"
+           "その製品や形式が、作業の途中で通るだけ（取ってくる場所、送り先、使う道具）なら本題のスキルとしては選ばず、ほかの候補か次の index find の結果を優先する。")
 
 def tool_tag(r):
     return {"kind":"tool"} if r.get("kind")=="tool" else {}
@@ -403,7 +403,8 @@ def demote_tools(refs):
 # lists the next closest skills, name and a short excerpt, for the agent to weigh. This is per-turn
 # context, not the host's skill list, and costs about 3,000 characters.
 SHORTLIST=25
-SHORT_SUMMARY=110
+# Long enough for the opening and, when the description goes on, the part naming the request's words.
+SHORT_SUMMARY=150
 
 def shortlist(idx,prompt,exclude,claude):
     """[{dir, skills:[{name, summary[, kind]}]}] for the closest skills not already offered."""
@@ -411,7 +412,7 @@ def shortlist(idx,prompt,exclude,claude):
     if not work:
         return []
     try:
-        found=idx["find"](work,SHORTLIST+len(exclude),ratio=0)
+        found=idx["find"](work,SHORTLIST+len(exclude),ratio=0,summary_len=SHORT_SUMMARY)
     except (OSError,ValueError,TypeError,KeyError,RuntimeError):
         return []
     native=Path.home()/".claude"/"skills"
@@ -424,7 +425,7 @@ def shortlist(idx,prompt,exclude,claude):
         # Rows share their folder (~/.agents/skills/<name>/SKILL.md); the folder is named once.
         base=p.parent.parent.as_posix() if p.parent.name==r["name"] else p.parent.as_posix()
         row={"name":r["name"] if p.parent.name==r["name"] else p.parent.name,
-             "summary":idx["summary"](r["summary"],SHORT_SUMMARY),**tool_tag(r)}
+             "summary":r["summary"],**tool_tag(r)}
         groups.setdefault(base,[]).append(row)
         n+=1
         if n==SHORTLIST:
@@ -469,7 +470,8 @@ def session_state(session_id):
 def save_session(f,d):
     try:
         f.parent.mkdir(parents=True,exist_ok=True)
-        d={"offered":list(dict.fromkeys(d.get("offered",[])))[-200:],"items":list(dict.fromkeys(d.get("items",[])))[-200:]}
+        d={"offered":list(dict.fromkeys(d.get("offered",[])))[-200:],"items":list(dict.fromkeys(d.get("items",[])))[-200:],
+           **{k:d[k] for k in ("last_listed","last_at") if k in d}}
         tmp=f.with_suffix(".tmp")
         tmp.write_text(json.dumps(d),encoding="utf-8")
         os.replace(tmp,f)
@@ -480,11 +482,19 @@ def save_session(f,d):
     except OSError:
         pass
 
-def remember(session_id,paths):
+def remember(session_id,paths,new_turn=False):
+    """Note the skills listed to the agent. `last_listed` holds every SKILL.md listed for the latest
+    request (empty when none came close) and `last_at` when, so a later step can tell a request
+    whose listed skills were all passed over from one where a listed skill was opened."""
     f,d=session_state(session_id)
-    if f is not None and paths:
-        d.setdefault("offered",[]).extend(paths)
-        save_session(f,d)
+    if f is None or not (paths or new_turn):
+        return
+    d.setdefault("offered",[]).extend(paths)
+    if new_turn:
+        d["last_listed"],d["last_at"]=list(dict.fromkeys(paths)),int(time.time())
+    else:
+        d["last_listed"]=list(dict.fromkeys(d.get("last_listed",[])+list(paths)))
+    save_session(f,d)
 
 def todo_items(e):
     """The to-do items the agent just wrote, as text: subject and description of a new task,
