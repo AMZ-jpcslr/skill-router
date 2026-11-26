@@ -22,7 +22,7 @@ TODO_TOOLS = ("TaskCreate", "TodoWrite")
 LIMIT = 262144
 DEFAULT = {"all_projects": False, "folderless": False, "projects": []}
 # Optional display setting; settings files written before it existed stay valid.
-OPTIONAL = {"show_picks": True}
+OPTIONAL = {"show_picks": True, "record_gaps": True}
 GUIDES = {
     "readme": "READMEが生成物なら生成元を変更し、再生成と通常の検証を行う。依頼外の説明・リンク・設定や公開状態は保つ。",
     "debugging": "小さな入力で再現し、観察結果で原因を確認してから最小限の修正を入れる。修正後に同じ条件で再確認する。",
@@ -322,7 +322,7 @@ def settings(path, cmd, flag, cwd):
     kind, root=scope(cwd)
     if cmd=="off":
         # Turning routing off keeps the display preference for the next time it is turned on.
-        c={**blank(),"show_picks":c["show_picks"]}
+        c={**blank(),**{k:c[k] for k in OPTIONAL}}
     elif cmd=="project":
         if kind!="project":
             raise ValueError("Open a project first.")
@@ -334,6 +334,9 @@ def settings(path, cmd, flag, cwd):
             c["projects"].append(str(p))
     elif cmd!="status":
         c[cmd.replace("-","_")]=flag=="on"
+        if cmd=="record-gaps" and flag=="off":
+            # Turning the record off also removes what was recorded.
+            read_gap_module()["forget"]()
     if cmd!="status":
         save_config(path,c)
     return dict(c,current_scope=kind,current_active=active(kind,root,c),
@@ -558,6 +561,20 @@ def refresh_index(auto,idx,stale=()):
     except (OSError,ValueError,TypeError,KeyError,RuntimeError):
         pass
 
+def read_gap_module():
+    return runpy.run_path(str(Path(__file__).resolve().with_name("gap_log.py")))
+
+def stop_response(raw,c):
+    """Stop hook: record, on this computer only, a work request no installed skill was used for."""
+    if not c.get("record_gaps",True) or len(raw)>LIMIT or os.environ.get("SKILL_ROUTER_CHILD") or not has_index():
+        return {}
+    e=json.loads(raw)
+    if not isinstance(e,dict) or e.get("hook_event_name")!="Stop" or not active(*scope(e.get("cwd")),c):
+        return {}
+    skip=lambda t:bool(SMALL.fullmatch(t) or OPT_OUT.search(t) or re.match(r"^\s*[@$]?\S*skill-(?:router-settings|suggest)\b",t,re.I))
+    host="claude-code" if os.environ.get("SKILL_ROUTER_HOST")=="claude-code" else "codex"
+    return read_gap_module()["record"](e,read_index_module(),narrow_pick,skip,host)
+
 def read_index_module():
     return runpy.run_path(str(Path(__file__).resolve().with_name("local_index.py")))
 
@@ -577,9 +594,9 @@ def main():
             return 1
     p=argparse.ArgumentParser(description=__doc__)
     cmd=p.add_subparsers(dest="cmd",required=True)
-    for v in ("hook","status","off"):
+    for v in ("hook","stop","status","off"):
         cmd.add_parser(v)
-    for v in ("project","all-projects","folderless","show-picks"):
+    for v in ("project","all-projects","folderless","show-picks","record-gaps"):
         cmd.add_parser(v).add_argument("flag",choices=("on","off"))
     a=p.parse_args()
     if a.cmd=="hook":
@@ -587,6 +604,14 @@ def main():
             raw=sys.stdin.buffer.read(LIMIT+1)
             out=response(raw,read_config(STATE))
         except (OSError,ValueError,RuntimeError):
+            out={}
+        print(json.dumps(out,ensure_ascii=True))
+        return 0
+    if a.cmd=="stop":
+        try:
+            raw=sys.stdin.buffer.read(LIMIT+1)
+            out=stop_response(raw,read_config(STATE))
+        except (OSError,ValueError,TypeError,KeyError,RuntimeError):
             out={}
         print(json.dumps(out,ensure_ascii=True))
         return 0
