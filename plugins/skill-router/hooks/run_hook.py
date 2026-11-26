@@ -12,5 +12,6 @@ import sys
 if not os.environ.get("PLUGIN_ROOT"):
     os.environ.setdefault("SKILL_ROUTER_HOST", "claude-code")
 root = Path(__file__).resolve().parent.parent
-sys.argv[1:] = ["hook"]
+# "stop" runs the end-of-turn record (Stop hook); anything else is the routing hook.
+sys.argv[1:] = ["stop"] if sys.argv[1:2] == ["stop"] else ["hook"]
 runpy.run_path(str(root / "skills" / "skill-router-settings" / "router.py"), run_name="__main__")

@@ -6,7 +6,7 @@ description: Use only when the user asks which skills to add, how to set up thei
 このファイルと同じフォルダの `suggest.py` を使う。Windowsでは `python -I -B -X utf8`、macOS/Linuxでは `python3 -I -B -X utf8` で実行し、スクリプトのパスはこのSKILL.mdの場所から解決する。
 
 ## 使い方の振り返り（既定）
-`suggest.py report` を実行する（期間は `--days 7-180`、既定60日）。Claude Code と Codex がこのPCに残している依頼履歴とセッション記録を、実行したときだけ読み取り専用で読む。保存も送信もしない。結果のJSONを次の3つに分けて、利用者の言語で短く伝える。
+`suggest.py report` を実行する（期間は `--days 7-180`、既定60日）。Claude Code と Codex がこのPCに残している依頼履歴とセッション記録、Skill Router 自身の「合うスキルがなかった作業」の記録を、実行したときだけ読み取り専用で読む。保存も送信もしない。結果のJSONを次の4つに分けて、利用者の言語で短く伝える。
 
 1. **設定のおすすめ**（`settings`）
    - `named_by_hand`: 毎回名前で呼んでいるスキル。`add_to_description` の語をそのSKILL.mdの description に足すと、名前なしで選ばれやすくなる。
@@ -17,6 +17,7 @@ description: Use only when the user asks which skills to add, how to set up thei
    - `keywords_missing` / `router_off_for_folders` / `index_missing`: 書かれている `action` を案内する。
 2. **足りていない作業**（`gaps`）: 合うスキルがない依頼によく出る語と日数。
 3. **外部スキルのおすすめ**（`public`）: 2に合う公開スキル。名前・合う作業の日数・説明・リンク・配布元（`trust`: official / curated / community）と、`install` にある導入方法を示す。
+4. **合うスキルがなかった作業**（`no_fit`）: 作業の終わりにどのスキルも使われなかった依頼の記録（Skill Router が語だけ残したもの）を、作業の種類（`themes`）ごとにまとめたもの。各 `theme` の `terms`（内容の語）・`days`・`requests` を示し、`public` は語の近い公開スキルの候補で、広めに拾っている。各候補の `description` を読み、主な用途がその作業に合うものだけを返す。合うものがなければ、`terms` を英語の短い言い換えと一緒に `find "<語> <英語>"` で1回探し直す。`installed_near` は近い導入済みスキルで、本当に合うなら説明の見直し（「スキルの健康診断」）を、合わなければ外部スキルを勧める。それでも見つからなければ `elsewhere` の案内（skills.sh）をする。記録を止めたい・消したいと言われたら `skill-router-settings/router.py record-gaps off` を案内する。
 
 履歴が少ない（`starter` がある）ときは、そう伝えたうえで、`starter.public` の公式・厳選の未導入スキルを数件紹介し、`find`（作業を言う）や `topics`（分野の一覧）で探せることを案内する。
 

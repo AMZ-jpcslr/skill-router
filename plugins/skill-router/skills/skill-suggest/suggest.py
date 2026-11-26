@@ -5,6 +5,8 @@ this computer, plus their session logs for which skills were actually opened. It
 each past request through the router's own matching to see what your installed skills
 cover, then reports settings worth changing, recurring work no installed skill covers,
 and public skills (bundled catalogue: names, descriptions, links) that fit that work.
+It also reads the router's own record of requests no installed skill was used for
+(no-fit.jsonl, written by the Stop hook on this computer: dates and single words).
 Nothing is written except the router's own feature cache; no network; no prompt text
 is printed, only counts and single words.
 """
@@ -660,7 +662,35 @@ def analyse(days=60, today=None, include_public=True):
         report["starter"] = {"reason": "little_history", "work_requests": work,
                              "public": [public_row(r, sources) for r in fresh[:8]], "more": len(fresh) - min(8, len(fresh)),
                              "next": ["find", "topics", "browse"]}
+    no_fit = recorded_no_fit(L, records, names, since.date(), include_public)
+    if no_fit:
+        report["no_fit"] = no_fit
     return report
+
+
+def recorded_no_fit(L, records, names, since, include_public=True):
+    """Work the Stop hook recorded as done without any skill, grouped by kind of work, each
+    kind with the public skills whose descriptions are closest to its words. The agent had
+    the installed candidates in front of it and used none, so the list is a shortlist for
+    the agent to check against each description, as with find."""
+    G = runpy.run_path(str(CORE / "gap_log.py"))
+    entries = [e for e in G["read_entries"]() if e["d"] >= since.isoformat()]
+    if not entries:
+        return None
+    themes = G["themes"](entries)
+    rows, sources = catalog(L) if include_public else ([], {})
+    trust = {k: v.get("trust") for k, v in sources.items()}
+    public = [r for r in rows if r["name"] not in names]
+    local_pool = [dict(r, source="local") for r in records]
+    near_local = soft_matcher(L, without_keywords(local_pool + public), trust) if records else None
+    near_public = soft_matcher(L, public, trust) if public else None
+    for t in themes:
+        query = " ".join(t["terms"])
+        t["installed_near"] = [r["name"] for r in (near_local(query, 8, 0.5) if near_local else [])
+                               if r["source"] == "local"][:3]
+        t["public"] = [public_row(r, sources) for r in (near_public(query, 5, 0.5) if near_public else [])]
+    return {"recorded": len(entries), "days": len({e["d"] for e in entries}), "themes": themes,
+            "elsewhere": elsewhere(names)}
 
 
 def find(description, include_public=True):

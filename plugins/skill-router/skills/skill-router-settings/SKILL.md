@@ -10,6 +10,7 @@ disable-model-invocation: true
 - 全プロジェクトを有効/無効: `router.py all-projects on` / `router.py all-projects off`
 - フォルダなしを有効/無効: `router.py folderless on` / `router.py folderless off`
 - 返答の最後に使ったスキルを1行で出す表示（`Skill Router: …`）をオン/オフ: `router.py show-picks on` / `router.py show-picks off`。初期状態はオン。`router.py off` をしても、この設定は保たれる。
+- 合うスキルがなかった作業の記録をオン/オフ: `router.py record-gaps on` / `router.py record-gaps off`。初期状態はオン。自動選択がオンのフォルダで、どのスキルも使わずに終えた作業の依頼について、日付と内容の語だけを `no-fit.jsonl`（設定の隣）に残し、skill-suggest のおすすめに使う。依頼の本文は残さず、PCの外へは送らない。オフにするとそれまでの記録も消える。`router.py off` をしても、この設定は保たれる。
 - すべてを無効: `router.py off`。個別登録も削除する。「両モードだけオフ」なら個別にオフにする。
 設定の変更は利用者が明示したときだけ行い、曖昧なら状態を返すか確認する。設定の反映とフックの信頼は別。レビューを回避しない。スクリプトが失敗したら設定が変わったと言わない。確認は処理結果に従い、依頼やファイルをこのスクリプトに渡さない。
 
