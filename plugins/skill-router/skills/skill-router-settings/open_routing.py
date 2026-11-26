@@ -46,7 +46,24 @@ JP_ASKS_WORK=re.compile(r"(?:て|で)(?:くれ(?:る|ない|ます)|もらえ(?:
 
 JP_PROHIBIT=re.compile(r"ないで(?:ください|下さい|ほしい|欲しい|おいて)?[?？!！。\s]*$|ないように(?:して(?:ください)?)?[?？!！。\s]*$")
 
+# A link pasted after the request ("…取ってきて https://…") is what the work is on, not the end
+# of the sentence.
+TRAILING_LINK=re.compile(r"(?:\s+(?:https?://|www\.)\S+)+\s*$")
+# In English a negation after the request's verb limits the work ("write tests without mocks",
+# "fix it but don't touch the API"); only one before it ("don't change anything") is no request.
+EN_NEGATION=re.compile(r"\b(?:do not|don't|never|without)\b")
+
+def refused(part):
+    m=NOT_REQUEST.search(part)
+    if not m:return False
+    if EN_NEGATION.fullmatch(m.group()):
+        verb=REQUEST.search(part)
+        if verb and verb.start()<m.start() and not NOT_REQUEST.search(part,m.end()) and not re.search(r"[\u3041-\u30ff\u3400-\u9fff]",part):
+            return False
+    return True
+
 def is_request(part):
+    part=TRAILING_LINK.sub("",part)
     jp=bool(re.search(r"[\u3041-\u30ff\u3400-\u9fff]",part))
     if jp and JP_QUESTION.search(part) and not JP_ASKS_WORK.search(part):return False
     # "…は入れないで" limits the work; it is not work of its own.
@@ -97,7 +114,7 @@ def work_clauses(text):
             if tail and (KEEP_AS_IS.search(tail[0]) or NOT_REQUEST.search(tail[0])):
                 part=head
             part=HEADING.sub("",part)
-            if (is_request(part) or video_operation(part) in {"video-explain","video-extract","video-extract-audio","video-extract-frames","video-frames-ocr"} or OUTPUT_LABEL.fullmatch(section) and OUTPUT_VERB.search(part)) and (not NOT_REQUEST.search(part) or video_operation(part)=="video-explain"):
+            if (is_request(part) or video_operation(part) in {"video-explain","video-extract","video-extract-audio","video-extract-frames","video-frames-ocr"} or OUTPUT_LABEL.fullmatch(section) and OUTPUT_VERB.search(part)) and (not refused(part) or video_operation(part)=="video-explain"):
                 parts.append((section+" "+part if OUTPUT_LABEL.fullmatch(section) else part))
     return parts
 
