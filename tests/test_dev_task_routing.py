@@ -48,6 +48,14 @@ class DevTaskRouting(unittest.TestCase):
         self.assertEqual(clauses("変更を見て、コミットメッセージを書いて"), ["変更を見て、コミットメッセージを書いて"])
         self.assertEqual(clauses("READMEを直して、コミットはしないで"), ["readmeを直して"])
         self.assertEqual(clauses("Summarize notes.md in three bullets. Do not edit the file."), ["summarize notes.md in three bullets"])
+        # A negation after the verb limits the work; one before it is no request.
+        self.assertEqual(clauses("Write a backtest for this strategy without lookahead bias"), ["write a backtest for this strategy without lookahead bias"])
+        self.assertEqual(clauses("Fix the parser but don't change the public API"), ["fix the parser but don't change the public api"])
+        self.assertEqual(clauses("Don't change anything yet"), [])
+        self.assertEqual(clauses("Never mind, write nothing"), [])
+        # A link pasted after the request does not hide it.
+        self.assertEqual(clauses("この投稿の本文をJSONで取ってきて https://example.com/p/1"), ["この投稿の本文をjsonで取ってきて https://example.com/p/1"])
+        self.assertEqual(clauses("これって何？ https://example.com/p/1"), [])
 
     def test_selection(self):
         cases = [
