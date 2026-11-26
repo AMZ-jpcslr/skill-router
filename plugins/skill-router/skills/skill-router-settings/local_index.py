@@ -422,6 +422,38 @@ def summary(text, limit=180):
     clean=" ".join("".join(c if c.isprintable() else " " for c in str(text)).split())
     return clean if len(clean)<=limit else clean[:limit-1]+"…"
 
+SNIPPET_HEAD=.5
+BREAK=re.compile(r"[.;:!?)]\s+|[。；：！？）、]|,\s+")
+
+def snippet(text, request, limit=180):
+    """summary(), but when the description is cut, the part that names the request's own words is
+    kept: its opening, then the passage further on with most of them ("... .xlsx, .csv or .tsv
+    file" for a request about a CSV). A long description often says what a skill handles only
+    after its first sentence, so an opening alone can hide the reason it fits."""
+    clean=summary(text,10**6)
+    if len(clean)<=limit:
+        return clean
+    head=int(limit*SNIPPET_HEAD)
+    q=OPEN["normalize"](request)
+    latin=OPEN["words"](q)
+    # Japanese and other unspaced runs of the request, two characters or more, as written.
+    runs={m for m in OPEN["JP_WORD_RUN"].findall(q) if len(m)>=2}
+    low=OPEN["normalize"](clean)
+    if len(low)!=len(clean):
+        low=clean.lower()
+    hits=[m.start() for m in OPEN["WORD"].finditer(low) if OPEN["canonical"](m.group())in latin]
+    for r in runs:
+        hits+=[m.start() for m in re.finditer(re.escape(r),low)]
+    hits=sorted(h for h in hits if h>=head)
+    if not hits:
+        return summary(clean,limit)
+    room=limit-head-2
+    # The window, as long as the room left, that holds the most of the request's words.
+    best=max(hits,key=lambda h:(sum(h<=x<h+room for x in hits),-h))
+    # From the start of the clause the passage is in, when that is close enough to keep the words.
+    start=next((m.end() for m in BREAK.finditer(clean,max(head,best-room//2),best)),best)
+    return clean[:head].rstrip()+"… "+summary(clean[start:],room)
+
 # Indexed SKILL.md files found edited while routing; the hook rereads them (auto_index.py).
 STALE=[]
 
@@ -455,12 +487,12 @@ def active_refs(prompt,guide_names,index=INDEX):
         offered=OPEN["features"](row["name"]+" "+row.get("description",""))[2]
         fit="name_only" if editing and "create" in offered and not offered&EDIT_OPS else "choose" if stage=="open-shortlist" else "read"
         out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),"fit":fit,
-                    "summary":summary(row.get("description","")),**({"kind":row["kind"]} if row.get("kind") else {}),
+                    "summary":snippet(row.get("description",""),prompt),**({"kind":row["kind"]} if row.get("kind") else {}),
                     "selection_reason":(explanations.get(row["path"]) if stage.startswith("open-") else None)
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
     return out[:8]
 
-def find(task,limit=5,index=INDEX,min_score=0,ratio=.5):
+def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180):
     """Installed skills for a task the agent wrote itself, as a line ("write an apology email
     to a client"). The agent's wording reaches skills the user's own words missed; it is
     scored like a request, and the closest few are listed for the agent to choose among.
@@ -486,7 +518,7 @@ def find(task,limit=5,index=INDEX,min_score=0,ratio=.5):
         p=Path(row["path"])
         if sc<pool[0][0]*ratio or sc<min_score or len(out)==limit:break
         if p.name!="SKILL.md" or not any(p.is_relative_to(r) for r in allowed) or not plain(p,stat.S_ISREG):continue
-        out.append({"name":row["name"],"path":p.as_posix(),"summary":summary(row.get("description","")),
+        out.append({"name":row["name"],"path":p.as_posix(),"summary":snippet(row.get("description",""),task,summary_len),
                     **({"kind":row["kind"]} if row.get("kind") else {})})
     return out
 
