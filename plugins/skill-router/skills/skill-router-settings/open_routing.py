@@ -678,6 +678,12 @@ def context_of(prompt,parts):
             out.append(s)
     return " ".join(out)
 
+def posted(q,post):
+    """Positions of the skills sharing a word with the query; only those can score."""
+    terms=q.words|q.context_words|set(q.translated)|q.jp|q.runs|{"concept:"+t for t in q.targets}|{
+        w for f in q.files for w in words(f.rsplit(".",1)[0])}
+    return sorted({i for t in terms for i in post.get(t,())})
+
 def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None, prompt=None):
     """Retrieve by content and reject weak candidates.
     prepared: optional {path: prepare(row)} computed ahead of time."""
@@ -700,10 +706,7 @@ def rank_open(parts, records, known_for, top=8, explanations=None, prepared=None
     for part in parts:
         q=Query(part,context,counts)
         if full is None:
-            # Only skills sharing a word with the request can score.
-            terms=q.words|q.context_words|set(q.translated)|q.jp|q.runs|{"concept:"+t for t in q.targets}|{
-                w for f in q.files for w in words(f.rsplit(".",1)[0])}
-            hits=sorted({i for t in terms for i in post.get(t,())})
+            hits=posted(q,post)
             catalog=[(records[i],prepared[records[i]["path"]]) for i in hits]
         else:
             catalog=full

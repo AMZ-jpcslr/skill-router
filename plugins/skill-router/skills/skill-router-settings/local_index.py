@@ -398,6 +398,25 @@ def prepared_features(records,path=None,save=True):
             pass
     return out
 
+# One hook can route the request and then list close skills; both read the same catalogue.
+_CATALOG={}
+
+def catalog(obj,index):
+    """(records, prepared features) of an index already read, reused within one process
+    while the index and keyword files are unchanged."""
+    try:
+        key=tuple((p.stat().st_mtime_ns,p.stat().st_size) for p in (Path(index),KEYWORDS) if p.exists())
+    except OSError:
+        key=None
+    hit=_CATALOG.get(str(index))
+    if key is not None and hit and hit[0]==key:
+        return hit[1],hit[2]
+    records=with_keywords(one_per_name(obj["records"]))
+    prepared=prepared_features(records)
+    if key is not None:
+        _CATALOG[str(index)]=(key,records,prepared)
+    return records,prepared
+
 def summary(text, limit=180):
     """Single-line excerpt of a skill description, shown to the agent as data."""
     clean=" ".join("".join(c if c.isprintable() else " " for c in str(text)).split())
@@ -418,8 +437,8 @@ def active_refs(prompt,guide_names,index=INDEX):
     request=" ".join(OPEN["work_clauses"](prompt))
     asked=OPEN["features"](request)[2]
     editing=bool(asked&EDIT_OPS or JP_EDIT.search(request)) and "create" not in asked
-    records=with_keywords(one_per_name(obj["records"]))
-    for stage,row in rank(prompt,records,guide_names,explanations,prepared_features(records)):
+    records,prepared=catalog(obj,index)
+    for stage,row in rank(prompt,records,guide_names,explanations,prepared):
         p=Path(row["path"])
         if not NAME.fullmatch(row["name"]) or any(ord(c)<32 for c in str(p)) or p.name!="SKILL.md":continue
         if not p.is_absolute() or not any(p.is_relative_to(root) for root in allowed):continue
@@ -441,19 +460,23 @@ def active_refs(prompt,guide_names,index=INDEX):
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
     return out[:8]
 
-def find(task,limit=5,index=INDEX,min_score=0):
+def find(task,limit=5,index=INDEX,min_score=0,ratio=.5):
     """Installed skills for a task the agent wrote itself, as a line ("write an apology email
     to a client"). The agent's wording reaches skills the user's own words missed; it is
-    scored like a request, and the closest few are listed for the agent to choose among."""
+    scored like a request, and the closest few are listed for the agent to choose among.
+    With ratio 0 and a larger limit it is the hook's wide shortlist: every skill sharing evidence
+    with the request, best first, for the agent to choose among."""
     obj=read_json(index,{})
     if not isinstance(obj,dict) or obj.get("version") not in (1,FORMAT):return []
-    records=with_keywords(one_per_name(obj["records"]))
-    prepared=prepared_features(records)
+    records,prepared=catalog(obj,index)
     text=OPEN["normalize"](task)[:400]
     counts=prepared.counts or OPEN["catalog_counts"](prepared[r["path"]] for r in records)
     q=OPEN["Query"](text,"",counts)
+    rows=records
+    if prepared.post is not None and prepared.order==[r["path"] for r in records]:
+        rows=[records[i] for i in OPEN["posted"](q,prepared.post)]
     pool=[]
-    for row in records:
+    for row in rows:
         sc,ev,_=OPEN["score_skill"](q,prepared[row["path"]],counts[0],counts[1],len(records),row)
         if ev and sc>0:pool.append((sc,row))
     pool.sort(key=lambda x:(-x[0],x[1]["name"],x[1]["path"]))
@@ -461,7 +484,7 @@ def find(task,limit=5,index=INDEX,min_score=0):
     out=[]
     for sc,row in pool:
         p=Path(row["path"])
-        if sc<pool[0][0]*.5 or sc<min_score or len(out)==limit:break
+        if sc<pool[0][0]*ratio or sc<min_score or len(out)==limit:break
         if p.name!="SKILL.md" or not any(p.is_relative_to(r) for r in allowed) or not plain(p,stat.S_ISREG):continue
         out.append({"name":row["name"],"path":p.as_posix(),"summary":summary(row.get("description","")),
                     **({"kind":row["kind"]} if row.get("kind") else {})})

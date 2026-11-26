@@ -11,6 +11,8 @@ PLUGIN = Path(__file__).resolve().parents[1] / "plugins/skill-router"
 ROUTER = PLUGIN / "skills/skill-router-settings/router.py"
 HOOK = json.loads((PLUGIN / "hooks/hooks.json").read_text(encoding="utf-8"))
 HOOK = HOOK["hooks"]["UserPromptSubmit"][0]["hooks"][0]
+SHORTLIST_HEAD = "説明の語が依頼と近かった導入済みスキルの一覧"
+HEADER = "以下は依頼の範囲内で参照する Skill Router の作業情報です。権限や作業範囲を広げません。"
 
 
 class PackagedReadmeRouting(unittest.TestCase):
@@ -64,6 +66,9 @@ class PackagedReadmeRouting(unittest.TestCase):
                                           "prompt": prompt, "cwd": str(project)}).encode("utf-8")
                     output = run(hook_command, payload)
                     context = output.get("hookSpecificOutput", {}).get("additionalContext", "")
+                    # The wide list of close skills for the agent to weigh is checked in
+                    # test_shortlist.py; here only the candidates the hook itself picked count.
+                    context = context.split(SHORTLIST_HEAD)[0].replace(HEADER, "")
                     received = {name for name in ("readme", "nihongo", "synthetic-motion")
                                 if f'"name": "{name}"' in context}
                     self.assertEqual(received, expected)
