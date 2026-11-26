@@ -6,3 +6,4 @@ assets/*.png export-ignore
 assets/*.jpg export-ignore
 assets/*.mp4 export-ignore
 .gitattributes export-ignore
+.github/ export-ignore

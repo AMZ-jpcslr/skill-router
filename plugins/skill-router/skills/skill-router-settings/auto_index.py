@@ -51,9 +51,19 @@ def roots(L):
     return out
 
 
+def _folder_time(e):
+    # On Windows a listing carries the folder times its parent directory cached, and NTFS
+    # updates that copy later than the folder itself (a folder made and filled just now can
+    # still show its creation time). Asking the folder itself keeps an unchanged folder
+    # unchanged between prompts. Elsewhere DirEntry.stat is the same lstat call.
+    if os.name == "nt":
+        return os.lstat(e.path).st_mtime_ns
+    return e.stat(follow_symlinks=False).st_mtime_ns
+
+
 def fingerprint(paths):
-    """{root: [root mtime, {folder: mtime}]} from one directory read per root. On Windows the
-    folder times come with the listing; elsewhere each costs a stat of a few microseconds."""
+    """{root: [root mtime, {folder: mtime}]} from one directory read per root and one stat
+    per folder (a few microseconds each)."""
     out = {}
     for root in paths:
         try:
@@ -64,7 +74,7 @@ def fingerprint(paths):
                     if len(kids) >= MAX_ENTRIES:
                         break
                     if e.is_dir(follow_symlinks=False):
-                        kids[e.name] = e.stat(follow_symlinks=False).st_mtime_ns
+                        kids[e.name] = _folder_time(e)
         except OSError:
             continue
         out[str(root)] = [top, kids]
@@ -86,10 +96,38 @@ def changes(old, new):
     return out
 
 
+def settle(before, after, walked):
+    """The fingerprint to remember after a walk. Reading a folder can move the times the
+    system reports for it, so walked folders (all of them for a whole walk) take their time
+    from after the walk. Folders not walked keep the time from before it, so a change made
+    while walking is still seen next time instead of being taken as already indexed."""
+    out = {}
+    for root, (top, kids) in before.items():
+        new = after.get(root)
+        if new is None:
+            out[root] = [top, dict(kids)]
+            continue
+        names = walked.get(root, set())
+        whole = names is None
+        # Only folders listed before the walk are taken as indexed: one that appeared or went
+        # away during the walk keeps showing as changed.
+        merged = {n: new[1][n] if (whole or n in names) and n in new[1] else t
+                  for n, t in kids.items()}
+        # The root time only matters for "something here changed"; it is safe to take the new
+        # one, because any folder added or removed meanwhile still differs by name next time.
+        out[root] = [new[0] if (whole or root in walked) else top, merged]
+    return out
+
+
 def _stale_folders(paths, rts):
     out = {}
     for p in paths:
-        p = Path(p)
+        # Roots are resolved, so the path is too: on Windows the same folder can be spelled
+        # with a short (8.3) name, other letter case or a link, and would not sit "under" its root.
+        try:
+            p = Path(p).resolve()
+        except (OSError, RuntimeError, ValueError):
+            p = Path(p)
         for r in rts:
             try:
                 rel = p.relative_to(r)
@@ -128,6 +166,9 @@ def check(L, stale=(), now=None):
         done["walked"] = sorted(n for v in diff.values() for n in v)
     else:
         stats = None
+    if stats is not None:
+        walked = {str(r): None for r in rts} if diff is None else {r: set(v) for r, v in diff.items()}
+        fp = settle(fp, fingerprint(rts), walked)
     if stats is not None and (stats["read"] or stats["removed"] or done["walked"] == "whole"):
         st["changed"] = now
     code = _keyword_code()
