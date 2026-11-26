@@ -490,6 +490,35 @@ def find(task,limit=5,index=INDEX,min_score=0,ratio=.5):
                     **({"kind":row["kind"]} if row.get("kind") else {})})
     return out
 
+def offerable(path,allowed=None):
+    """A SKILL.md the agent may be pointed at: a plain file under an allowed skills root."""
+    p=Path(path)
+    allowed=allowed if allowed is not None else [r for r in map(safe_root,(*DEFAULT,*roots())) if r is not None]
+    return p.name=="SKILL.md" and any(p.is_relative_to(r) for r in allowed) and plain(p,stat.S_ISREG)
+
+def similar_skills(index=INDEX):
+    """{path: {"task", "members":[{name, path, summary, kind?, best_for?, not_for?}]}}: groups of
+    installed skills that do the same work, written at index time (groups.py)."""
+    obj=read_json(index,{})
+    if not isinstance(obj,dict) or obj.get("version") not in (1,FORMAT):return {}
+    records,_=catalog(obj,index)
+    G=runpy.run_path(str(Path(__file__).with_name("groups.py")))
+    by={r["path"]:r for r in records}
+    allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
+    out={}
+    for entry in {id(e):e for e in G["load"](globals(),records).values()}.values():
+        members=[]
+        for path,traits in entry["members"]:
+            row=by.get(path)
+            if row is None or not offerable(path,allowed):continue
+            members.append({"name":row["name"],"path":Path(path).as_posix(),"summary":summary(row.get("description","")),
+                            **({"kind":row["kind"]} if row.get("kind") else {}),
+                            **{k:summary(traits[k],90) for k in ("best_for","not_for") if isinstance(traits.get(k),str) and traits[k]}})
+        if len(members)>=2:
+            group={"task":entry["task"],"members":members}
+            for m in members:out[m["path"]]=group
+    return out
+
 def write_keywords(records,limit=None,runner=None):
     """Have the host model write keywords for new or changed skills (keywords.py). Raises
     RuntimeError (keywords.Unavailable) when there is no way to, with nothing written."""
@@ -508,6 +537,7 @@ def command(argv):
     k=sub.add_parser("keywords",help="write Japanese keywords for new or changed skills")
     for x in (r,k):x.add_argument("--limit",type=int,default=None)
     sub.add_parser("status")
+    sub.add_parser("groups",help="group installed skills that do the same work and write what each is best at (host model)")
     f=sub.add_parser("find",help="list installed skills for a task described in a line (the agent's own wording)")
     f.add_argument("task")
     for verb in ("add-root","remove-root"):
@@ -525,12 +555,23 @@ def command(argv):
                 print(json.dumps(result,ensure_ascii=True))
                 return 2
         prepared_features(with_keywords(one_per_name(records)))
+        if a.sub=="keywords" or a.keywords:
+            try:
+                result["groups"]=runpy.run_path(str(Path(__file__).with_name("groups.py")))["build"](globals())
+            except RuntimeError as err:
+                result["groups_error"]=str(err)
     elif a.sub=="find":
         result={"candidates":find(a.task)}
         if any(r.get("kind")=="tool" for r in result["candidates"]):
             # Same rule as the hook's candidates: a skill for one product or format is not the main work's skill.
             result["note"]=("kind が tool の候補は、特定の製品・サービス・アプリ・ファイル形式を扱うためのスキル。"
                             "依頼が最終的に求める作業がその製品や形式の操作そのものでなければ選ばない。")
+    elif a.sub=="groups":
+        try:
+            result=runpy.run_path(str(Path(__file__).with_name("groups.py")))["build"](globals())
+        except RuntimeError as err:
+            print(json.dumps({"groups_error":str(err)},ensure_ascii=True))
+            return 2
     elif a.sub=="status":
         curr=read_json(INDEX,{})
         kw=read_json(KEYWORDS,{}).get("records",{})

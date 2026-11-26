@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import runpy
 import subprocess
 import sys
 import time
@@ -39,7 +40,8 @@ def _load(L, path):
 
 
 def _keyword_code():
-    return hashlib.sha256((HERE / "keywords.py").read_bytes()).hexdigest()[:16]
+    # Index-time groups (groups.py) are written by the same job, so a change there runs it once too.
+    return hashlib.sha256((HERE / "keywords.py").read_bytes() + (HERE / "groups.py").read_bytes()).hexdigest()[:16]
 
 
 def roots(L):
@@ -183,6 +185,12 @@ def run_keywords(L, want, runner=None):
     L["write_json"](kw_path, out)
     if out["done_for"]:
         L["prepared_features"](L["with_keywords"](L["one_per_name"](records)))
+        # Skills doing the same work, and what each is best at, from the same host model.
+        try:
+            out["groups"] = runpy.run_path(str(HERE / "groups.py"))["build"](L)
+        except (OSError, RuntimeError, ValueError, TypeError, KeyError) as err:
+            out["groups_error"] = str(err)[:200]
+        L["write_json"](kw_path, out)
     return out
 
 
