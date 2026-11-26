@@ -133,6 +133,19 @@ class AutoIndex(unittest.TestCase):
         row = next(r for r in self.L["read_json"](self.L["INDEX"], {})["records"] if r["name"] == "filler-05")
         self.assertEqual(row["stamp"][1], p.stat().st_size)
 
+    def test_stale_path_spelled_differently_from_its_root(self):
+        self.A["check"](self.L)
+        real = self.skills / "filler-07"
+        alias = Path(self.tmp.name) / "alias"
+        try:
+            os.symlink(self.home, alias, target_is_directory=True)
+        except (OSError, NotImplementedError):
+            self.skipTest("cannot make a link here")
+        p = alias / ".agents/skills/filler-07/SKILL.md"
+        with (real / "SKILL.md").open("a", encoding="utf-8") as f:
+            f.write("more\n")
+        self.assertEqual(self.A["check"](self.L, [str(p)])["walked"], ["filler-07"])
+
     def test_daily_walk_and_format_change_walk_whole(self):
         self.A["check"](self.L)
         self.assertEqual(self.A["check"](self.L, now=time.time() + 2 * 86400)["walked"], "whole")

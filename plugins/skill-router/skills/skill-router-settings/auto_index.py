@@ -122,7 +122,12 @@ def settle(before, after, walked):
 def _stale_folders(paths, rts):
     out = {}
     for p in paths:
-        p = Path(p)
+        # Roots are resolved, so the path is too: on Windows the same folder can be spelled
+        # with a short (8.3) name, other letter case or a link, and would not sit "under" its root.
+        try:
+            p = Path(p).resolve()
+        except (OSError, RuntimeError, ValueError):
+            p = Path(p)
         for r in rts:
             try:
                 rel = p.relative_to(r)
