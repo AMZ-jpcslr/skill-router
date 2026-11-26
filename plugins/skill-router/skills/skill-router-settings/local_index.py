@@ -492,12 +492,8 @@ def active_refs(prompt,guide_names,index=INDEX):
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
     return out[:8]
 
-def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180):
-    """Installed skills for a task the agent wrote itself, as a line ("write an apology email
-    to a client"). The agent's wording reaches skills the user's own words missed; it is
-    scored like a request, and the closest few are listed for the agent to choose among.
-    With ratio 0 and a larger limit it is the hook's wide shortlist: every skill sharing evidence
-    with the request, best first, for the agent to choose among."""
+def scored(task,index=INDEX):
+    """[(score,row)] of every installed skill sharing evidence with the task, best first."""
     obj=read_json(index,{})
     if not isinstance(obj,dict) or obj.get("version") not in (1,FORMAT):return []
     records,prepared=catalog(obj,index)
@@ -512,6 +508,29 @@ def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180):
         sc,ev,_=OPEN["score_skill"](q,prepared[row["path"]],counts[0],counts[1],len(records),row)
         if ev and sc>0:pool.append((sc,row))
     pool.sort(key=lambda x:(-x[0],x[1]["name"],x[1]["path"]))
+    return pool
+
+# The request's words do not separate the closest skills when the runner-up scores at least this
+# share of the best: their descriptions say nearly the same thing in the request's terms.
+CLOSE=.85
+
+def contested(task,index=INDEX,near=CLOSE):
+    """True when two differently named skills score within `near` of each other for the task, so
+    the words of the request alone cannot tell which fits; the agent's own wording of the main
+    work, and a look at the descriptions side by side, can."""
+    pool=scored(task,index)
+    if len(pool)<2:return False
+    best=pool[0]
+    rival=next((sc for sc,row in pool[1:] if row["name"]!=best[1]["name"]),0)
+    return rival>=best[0]*near
+
+def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180):
+    """Installed skills for a task the agent wrote itself, as a line ("write an apology email
+    to a client"). The agent's wording reaches skills the user's own words missed; it is
+    scored like a request, and the closest few are listed for the agent to choose among.
+    With ratio 0 and a larger limit it is the hook's wide shortlist: every skill sharing evidence
+    with the request, best first, for the agent to choose among."""
+    pool=scored(task,index)
     allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
     out=[]
     for sc,row in pool:

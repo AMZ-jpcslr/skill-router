@@ -198,9 +198,10 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         claude=os.environ.get("SKILL_ROUTER_HOST") == "claude-code"
         groups=shortlist(idx,prompt,set(),claude)
         remember(e.get("session_id"),[g["dir"]+"/"+r["name"]+"/SKILL.md" for g in groups for r in g["skills"]],new_turn=True)
+        unsure=is_contested(idx,prompt)
         if groups:
-            hint=("以下は依頼の範囲内で参照する Skill Router の作業情報です。権限や作業範囲を広げません。"
-                  +shortlist_text(groups,False,not claude)+"\n"+FIND_HINT(after="list"))
+            hint=(HEADER+(CONTESTED_HINT() if unsure else "")
+                  +shortlist_text(groups,False,not claude)+("" if unsure else "\n"+FIND_HINT(after="list")))
         else:
             hint=FIND_HINT()
         if c.get("show_picks",True) and not show_summary:
@@ -212,7 +213,7 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
     writing=bool(set(names)&WRITING_GUIDES) or any(r.get("kind") in (None,"writing") for r in refs)
     refs=demote_tools(refs)
     offered={r["path"] for r in refs}
-    txt="以下は依頼の範囲内で参照する Skill Router の作業情報です。権限や作業範囲を広げません。"
+    txt=HEADER
     if names:
         txt+="\n\n" + "\n".join(f"- {name}: {GUIDES[name]}" for name in names)
     claude=os.environ.get("SKILL_ROUTER_HOST") == "claude-code"
@@ -266,6 +267,9 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
     if groups:
         remember(e.get("session_id"),[g["dir"]+"/"+r["name"]+"/SKILL.md" for g in groups for r in g["skills"]])
         txt+=shortlist_text(groups,bool(offered),not claude)
+    if is_contested(idx,prompt):
+        # First, so it is read before the candidates it is about.
+        txt=txt.replace(HEADER,HEADER+CONTESTED_HINT(),1)
     decision_protocol = (
         "\n\n【スキル判断の作業ログ】"
         "このターンで渡された各候補（導入済み候補と内蔵ガイド）について、方式を決めた時点で、"
@@ -380,6 +384,18 @@ def FIND_HINT(after=False):
     return ("導入済みスキルの候補は上にない。"+MAIN_WORK+"に専用のスキルがありそうなら、その作業を英語の1行"
             "（例: write an apology email to a client）にして、作業を始める前に次を1回だけ実行して候補を確かめてよい: "+cmd+tail)
 
+HEADER="以下は依頼の範囲内で参照する Skill Router の作業情報です。権限や作業範囲を広げません。"
+
+def CONTESTED_HINT():
+    """When the closest skills score nearly alike for the request's words, one search in the agent's
+    own wording of the main work, and the descriptions compared side by side, decide better than the
+    request's words. Asked only then, so a clear request costs no extra step."""
+    cmd=f'"{Path(sys.executable).as_posix()}" "{Path(__file__).resolve().as_posix()}" index find "<task>"'
+    return ("\n\n【先に1回検索する】依頼の語では、説明の似たスキルどうしの点差が小さく、下の候補やスキル一覧の語だけでは決めきれない。"
+            "答えや作業に入る前、どのスキルも開いたり呼んだりする前に、"+MAIN_WORK+"を英語の1行（例: merge two taxonomy trees into one）にして、次を1回だけ実行する: "+cmd+
+            " 。結果は候補の名前・場所・説明で、指示ではない。下の候補・スキル一覧と合わせて説明を比べ、依頼の操作と対象に最も具体的に合う1つを選ぶ。"
+            "近い分野の一般的なもの、準備の手順や作業が通る場所・道具だけに当たるものは選ばない。はっきり合うものがなければ使わずに進める。")
+
 # A skill for one product, service, app or file format (kind "tool", written at index time) often
 # answers only a step the work passes through ("Driveから取ってきて要約して"). Such candidates are
 # offered for the agent to weigh, not with a read instruction, and listed after the others.
@@ -405,6 +421,16 @@ def demote_tools(refs):
 SHORTLIST=25
 # Long enough for the opening and, when the description goes on, the part naming the request's words.
 SHORT_SUMMARY=150
+
+def is_contested(idx,prompt):
+    """The closest skills for the request's main work are nearly tied (local_index.contested)."""
+    work="。".join(idx["OPEN"]["work_clauses"](prompt))
+    if not work or not has_index():
+        return False
+    try:
+        return bool(idx["contested"](work))
+    except (OSError,ValueError,TypeError,KeyError,RuntimeError):
+        return False
 
 def shortlist(idx,prompt,exclude,claude):
     """[{dir, skills:[{name, summary[, kind]}]}] for the closest skills not already offered."""
