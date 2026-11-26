@@ -71,6 +71,50 @@ class AutoIndex(unittest.TestCase):
         self.assertNotIn("filler-03", self.names())
         self.assertEqual(len(self.names()), 30)
 
+    def _times_move_when_walked(self):
+        """Like NTFS, where the folder times a listing shows catch up only once a folder has
+        been read: every folder the walk reads reports a later time afterwards."""
+        scan = self.L["scan"]
+
+        def moving(rts, index, changed=None):
+            out = scan(rts, index, changed=changed)
+            for root in rts:
+                names = None if changed is None else changed.get(str(root), set())
+                for d in Path(root).iterdir():
+                    if d.is_dir() and (names is None or d.name in names):
+                        t = d.stat().st_mtime + 5
+                        os.utime(d, (t, t))
+            return out
+        self.L["scan"] = moving
+
+    def test_times_that_move_on_reading_do_not_cause_rewalks(self):
+        self._times_move_when_walked()
+        self.assertEqual(self.A["check"](self.L)["walked"], "whole")
+        auto = self.state / "skill-auto.json"
+        before = (auto.stat().st_mtime_ns, self.L["INDEX"].stat().st_mtime_ns)
+        time.sleep(0.02)
+        self.assertIsNone(self.A["check"](self.L)["walked"])
+        self.assertEqual(before, (auto.stat().st_mtime_ns, self.L["INDEX"].stat().st_mtime_ns))
+        write_skill(self.skills, "apology-letters", "Write apology emails to clients.")
+        self.assertEqual(self.A["check"](self.L)["walked"], ["apology-letters"])
+        self.assertIsNone(self.A["check"](self.L)["walked"])
+
+    def test_folder_added_during_a_walk_is_walked_next_time(self):
+        self.A["check"](self.L)
+        scan = self.L["scan"]
+
+        def adding(rts, index, changed=None):
+            out = scan(rts, index, changed=changed)
+            if not (self.skills / "late-one").exists():
+                write_skill(self.skills, "late-one", "Arrives while the walk runs.")
+            return out
+        self.L["scan"] = adding
+        write_skill(self.skills, "early-one", "Arrives before the walk.")
+        self.assertEqual(self.A["check"](self.L)["walked"], ["early-one"])
+        self.assertNotIn("late-one", self.names())
+        self.assertEqual(self.A["check"](self.L)["walked"], ["late-one"])
+        self.assertIn("late-one", self.names())
+
     def test_skill_in_a_new_root_is_found(self):
         self.A["check"](self.L)
         write_skill(self.home / ".claude/skills", "native-one", "Native skill.")

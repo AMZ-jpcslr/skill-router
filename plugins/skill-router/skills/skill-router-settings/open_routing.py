@@ -225,6 +225,13 @@ def features(value):
     return (frozenset(latin),frozenset(jp),frozenset(k for k,p in PATTERNS.items() if p.search(text) or p.search(tight)))
 
 
+def pair_of_kinds(*kinds):
+    """A request pattern that needs two different kinds of signal, in either order. One word
+    said twice is not evidence of the compound: "索引" twice can be any index (the router's
+    own skill index too), while "クエリ" with "索引", or "索引" with "遅い", names the work."""
+    return "|".join(f"(?:{a}).*?(?:{b})" for a in kinds for b in kinds if a != b)
+
+
 # Cross-language verbs and artefacts. Match a structured operation, not an individual
 # skill or example prompt. A specialised candidate must demonstrate that operation.
 ROLES = {
@@ -253,7 +260,8 @@ ROLES = {
         r"(?=.*\b(?:docx|word)\b)(?=.*\b(?:edit|tracked changes|track changes|review|comments)\b)",
         r"\b(?:convert|conversion|sdk)\b"),
     "query-performance": (
-        r"(?:索引|実行計画|クエリ).*?(?:索引|実行計画|クエリ|パフォーマンス|遅い|高速|最適|インデックス)",
+        pair_of_kinds(r"クエリ|(?<![a-z])sql(?![a-z])", r"索引|インデックス", r"実行計画",
+                      r"パフォーマンス|遅い|遅く|高速|速く|最適|チューニング"),
         r"(?=.*\b(?:queries|query)\b)(?=.*\b(?:indexing|indexes|indices|index|query plan)\b)(?=.*\b(?:optimization|tuning|slow|performance)\b)",
         r"\b(?:postgresql|postgres|neon|mysql|sqlite|mongodb)\b"),
     "product-language": (

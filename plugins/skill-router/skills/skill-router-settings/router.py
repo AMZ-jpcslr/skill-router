@@ -100,7 +100,7 @@ def read_config(path):
         with path.open("rb") as f:
             d = json.loads(f.read(65537))
     except FileNotFoundError:
-        return blank()
+        return {**OPTIONAL,**blank()}
     if (not isinstance(d,dict) or not set(DEFAULT)<=set(d)<=set(DEFAULT)|set(OPTIONAL)
         or any(type(d.get(k,False)) is not bool for k in ("all_projects","folderless",*OPTIONAL))
         or not isinstance(d["projects"],list) or len(d["projects"])>128
