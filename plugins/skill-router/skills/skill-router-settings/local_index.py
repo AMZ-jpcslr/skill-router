@@ -328,6 +328,8 @@ def with_keywords(records,path=None):
             # Requests written for the skill ("取引先へのお詫びメールを書いて") are matched like keywords.
             asks=[x for x in k.get("requests") or () if isinstance(x,str)][:8]
             row=dict(row,keywords=[x for x in k["keywords"] if isinstance(x,str)][:12]+asks)
+            if k.get("kind") in ("task","tool","writing"):
+                row["kind"]=k["kind"]
         out.append(row)
     return out
 
@@ -434,12 +436,12 @@ def active_refs(prompt,guide_names,index=INDEX):
         offered=OPEN["features"](row["name"]+" "+row.get("description",""))[2]
         fit="name_only" if editing and "create" in offered and not offered&EDIT_OPS else "choose" if stage=="open-shortlist" else "read"
         out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),"fit":fit,
-                    "summary":summary(row.get("description","")),
+                    "summary":summary(row.get("description","")),**({"kind":row["kind"]} if row.get("kind") else {}),
                     "selection_reason":(explanations.get(row["path"]) if stage.startswith("open-") else None)
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
     return out[:8]
 
-def find(task,limit=5,index=INDEX):
+def find(task,limit=5,index=INDEX,min_score=0):
     """Installed skills for a task the agent wrote itself, as a line ("write an apology email
     to a client"). The agent's wording reaches skills the user's own words missed; it is
     scored like a request, and the closest few are listed for the agent to choose among."""
@@ -459,9 +461,10 @@ def find(task,limit=5,index=INDEX):
     out=[]
     for sc,row in pool:
         p=Path(row["path"])
-        if sc<pool[0][0]*.5 or len(out)==limit:break
+        if sc<pool[0][0]*.5 or sc<min_score or len(out)==limit:break
         if p.name!="SKILL.md" or not any(p.is_relative_to(r) for r in allowed) or not plain(p,stat.S_ISREG):continue
-        out.append({"name":row["name"],"path":p.as_posix(),"summary":summary(row.get("description",""))})
+        out.append({"name":row["name"],"path":p.as_posix(),"summary":summary(row.get("description","")),
+                    **({"kind":row["kind"]} if row.get("kind") else {})})
     return out
 
 def write_keywords(records,limit=None,runner=None):
@@ -501,6 +504,10 @@ def command(argv):
         prepared_features(with_keywords(one_per_name(records)))
     elif a.sub=="find":
         result={"candidates":find(a.task)}
+        if any(r.get("kind")=="tool" for r in result["candidates"]):
+            # Same rule as the hook's candidates: a skill for one product or format is not the main work's skill.
+            result["note"]=("kind が tool の候補は、特定の製品・サービス・アプリ・ファイル形式を扱うためのスキル。"
+                            "依頼が最終的に求める作業がその製品や形式の操作そのものでなければ選ばない。")
     elif a.sub=="status":
         curr=read_json(INDEX,{})
         kw=read_json(KEYWORDS,{}).get("records",{})
