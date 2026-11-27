@@ -134,12 +134,20 @@ class IndexCache(unittest.TestCase):
         # scan() stores paths under resolved roots. Windows TEMP may use a short name.
         home = Path(self.tmp.name).resolve()
         first = dict(ROWS[0], path=str(home / ".agents/skills/docker/SKILL.md"))
-        native = dict(first, path=str(home / ".claude/skills/pack/docker/SKILL.md"))
+        native = dict(first, path=str(home / ".claude/skills/docker-copy/SKILL.md"))
         later = dict(first, path=str(home / ".claude/skills/docker/SKILL.md"))
         select = self.L["one_per_name"]
         with patch.dict(select.__globals__, HOME=home):
             self.assertEqual(select([first, ROWS[1], native, later]), [ROWS[1], native])
             self.assertEqual(select([native, ROWS[1], later, first]), [native, ROWS[1]])
+
+    def test_synced_skills_and_personal_subfolders(self):
+        root = Path(self.tmp.name).resolve()
+        location = self.L["claude_location"]
+        self.assertEqual(location(root / "docker/SKILL.md", root), 2)
+        self.assertEqual(location(root / "synced/account/docker/SKILL.md", root), 1)
+        self.assertEqual(location(root / "pack/docker/SKILL.md", root), 0)
+        self.assertEqual(location(root / "synced/SKILL.md", root), 0)
 
     def test_malformed_model_responses_are_transient(self):
         for response in ([1], "invalid", {"skills": None}):

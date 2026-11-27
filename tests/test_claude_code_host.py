@@ -97,6 +97,17 @@ class ClaudeCodeHost(unittest.TestCase):
         self.assertNotIn("SKILL.mdをReadで1回開いて", txt)
         self.assertNotIn('"path"', txt)
 
+    def test_grouped_personal_skill_is_offered_by_path(self):
+        self.add_native_skill()
+        skills = self.home / ".claude/skills"
+        pack = skills / "pack"
+        pack.mkdir()
+        (skills / "nihongo-native").rename(pack / "nihongo-native")
+        txt = self.context(self.run_hook({}))
+        self.assertIn((pack / "nihongo-native/SKILL.md").resolve().as_posix(), txt)
+        self.assertIn("SKILL.mdをReadで1回開いて", txt)
+        self.assertNotIn("それをSkillツールで呼ぶ", txt)
+
     def test_copy_of_a_native_skill_is_named_not_read(self):
         # The same skill in ~/.agents/skills and ~/.claude/skills: Claude Code loads the latter itself.
         # The native copy is added after the refresh; the hook indexes it on its own.

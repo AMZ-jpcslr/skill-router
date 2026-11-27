@@ -69,6 +69,17 @@ class Shortlist(unittest.TestCase):
     def test_no_list_without_work(self):
         self.assertNotIn(HEAD, self.context("ありがとう！"))
 
+    def test_manual_group_under_claude_skills_stays_on_shortlist(self):
+        root = self.home / ".claude/skills"
+        root.mkdir(parents=True)
+        pack = root / "pack"
+        (self.home / ".agents/skills").rename(pack)
+        rows = self.listed(self.context("Write the weekly status report for my team."))
+        self.assertTrue(rows)
+        for folder, name in rows:
+            self.assertEqual(Path(folder), pack.resolve())
+            self.assertTrue((pack / name / "SKILL.md").is_file())
+
     def test_listed_skills_of_the_latest_request_are_recorded(self):
         context = self.context("Write the weekly status report for my team.", "s1")
         files = list((self.home / ".skill-router-beta/sessions").glob("*.json")) or \

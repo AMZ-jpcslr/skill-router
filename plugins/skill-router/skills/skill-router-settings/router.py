@@ -152,9 +152,6 @@ def active(kind, root, c):
         return c["folderless"]
     return kind=="project" and (c["all_projects"] or root in map(Path,c["projects"]))
 
-def claude_native(row,root):
-    return Path(row["path"]).is_relative_to(root) or (root/row["name"]/"SKILL.md").is_file()
-
 def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
     if not (c["projects"] or c["all_projects"] or c["folderless"]) or len(raw)>LIMIT:
         return {}
@@ -226,11 +223,17 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         native_root=(Path.home()/".claude"/"skills").resolve()
         # A skill of the same name in ~/.claude/skills is the one Claude Code will load,
         # even when the index found a copy elsewhere (~/.codex/skills/nihongo).
-        is_native=lambda r:claude_native(r,native_root)
         # Named with the description excerpt: beside Claude Code's own list, where look-alike
         # skills sit side by side, the excerpt matched to the request is what tells them apart.
-        native=list({r["name"]:{"name":r["name"],"summary":r["summary"]} for r in refs if is_native(r)}.values())
-        refs=[r for r in refs if not is_native(r)]
+        named={}
+        external=[]
+        for r in refs:
+            if idx["claude_native"](r,native_root):
+                named[r["name"]]={"name":r["name"],"summary":r["summary"]}
+            else:
+                external.append(r)
+        native=list(named.values())
+        refs=external
         weak=[{"name":r["name"],"path":r["path"]} for r in refs if r.get("fit")=="name_only"]
         choose=[{"name":r["name"],"path":r["path"],"summary":r["summary"],**tool_tag(r)} for r in refs if r.get("fit")=="choose"]
         refs=[{k:v for k,v in r.items() if k not in ("fit","kind")}|tool_tag(r) for r in refs if r.get("fit")=="read"]
@@ -445,7 +448,7 @@ def related_skills(idx,prompt,exclude,claude):
     n=0
     for r in found:
         p=Path(r["path"])
-        if r["path"] in exclude or (claude and claude_native(r,native)):
+        if r["path"] in exclude or (claude and idx["claude_native"](r,native)):
             continue
         # Rows share their folder (~/.agents/skills/<name>/SKILL.md); the folder is named once.
         base=p.parent.parent.as_posix() if p.parent.name==r["name"] else p.parent.as_posix()
@@ -558,7 +561,7 @@ def todo_response(e):
         except (OSError,ValueError,TypeError,KeyError,RuntimeError):
             found=[]
         found=[r for r in found if r["path"] not in offered
-               and not (claude and claude_native(r,native))][:TODO_LIMIT]
+               and not (claude and idx["claude_native"](r,native))][:TODO_LIMIT]
         if found:
             rows.append({"todo":t[:80],"candidates":sorted(found,key=lambda r:r.get("kind")=="tool")})
             offered.update(r["path"] for r in found)
