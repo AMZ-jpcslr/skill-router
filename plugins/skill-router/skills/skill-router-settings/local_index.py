@@ -313,15 +313,20 @@ EDIT_OPS=frozenset({"edit","proofread","translate","ai-writing"})
 def one_per_name(records):
     """The same skill installed in two places (~/.codex/skills and ~/.claude/skills) is one
     candidate, not a tie that hides both. Prefer the copy Claude Code loads itself."""
-    native=(HOME/".claude"/"skills").resolve()
+    native=None
     best={}
     for row in records:
         key=row["name"]
-        here=Path(row["path"]).is_relative_to(native)
-        if key not in best or (here and not best[key][0]):
-            best[key]=(here,row)
-    keep={id(r) for _,r in best.values()}
-    return [r for r in records if id(r) in keep]
+        previous=best.get(key)
+        if previous is None:
+            best[key]=row
+            continue
+        # Only a name collision needs a native-path check. Keep the first native copy.
+        if native is None:
+            native=(HOME/".claude"/"skills").resolve()
+        if Path(row["path"]).is_relative_to(native) and not Path(previous["path"]).is_relative_to(native):
+            best[key]=row
+    return [r for r in records if best[r["name"]] is r]
 
 def with_keywords(records,path=None):
     """Attach index-time keywords to rows whose SKILL.md has not changed since."""

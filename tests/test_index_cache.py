@@ -126,6 +126,20 @@ class IndexCache(unittest.TestCase):
         b = dict(a, path="/other/dup-skill/SKILL.md", stamp=[501, 1, 501])
         self.assertEqual(len(self.L["one_per_name"]([a, b] + ROWS)), len(ROWS) + 1)
 
+    def test_unique_names_need_no_native_path_checks(self):
+        with patch.object(Path, "is_relative_to", side_effect=AssertionError("no name collision")):
+            self.assertEqual(self.L["one_per_name"](ROWS), ROWS)
+
+    def test_first_native_copy_keeps_its_original_position(self):
+        home = Path(self.tmp.name)
+        first = dict(ROWS[0], path=str(home / ".agents/skills/docker/SKILL.md"))
+        native = dict(first, path=str(home / ".claude/skills/pack/docker/SKILL.md"))
+        later = dict(first, path=str(home / ".claude/skills/docker/SKILL.md"))
+        select = self.L["one_per_name"]
+        with patch.dict(select.__globals__, HOME=home):
+            self.assertEqual(select([first, ROWS[1], native, later]), [ROWS[1], native])
+            self.assertEqual(select([native, ROWS[1], later, first]), [native, ROWS[1]])
+
     def test_malformed_model_responses_are_transient(self):
         for response in ([1], "invalid", {"skills": None}):
             with self.subTest(response=response), self.assertRaises(RuntimeError) as failure:
