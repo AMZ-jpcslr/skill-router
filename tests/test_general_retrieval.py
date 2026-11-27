@@ -109,6 +109,17 @@ class FoldedDescription(unittest.TestCase):
 
 
 class BroadSkills(unittest.TestCase):
+    def test_an_input_list_is_searchable_without_implying_a_specialization(self):
+        description = "Trace project decisions across records (tickets, PRs, meeting notes)."
+        entry = OPEN["prepare"](row("decision-tracker", description))
+        self.assertNotIn("pull-request", entry[1])
+        self.assertIn("pull-request", entry[2][2])
+        for name, text in (("pull-request-helper", description),
+                           ("review-helper", "Review pull requests (tickets, docs, notes)."),
+                           ("review-helper", "Review changes (pull requests)."),
+                           ("review-helper", "Delivery workflow (create PRs, review PRs, merge PRs).")):
+            self.assertIn("pull-request", OPEN["prepare"](row(name, text))[1])
+
     def test_a_guide_listing_several_tasks_is_not_a_specialist(self):
         # A writing guide whose description lists PR descriptions and AI-sounding prose among
         # its uses is not penalised as a PR or AI-writing specialist on another writing request.

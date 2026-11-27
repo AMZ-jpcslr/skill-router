@@ -477,6 +477,40 @@ def snippet(text, request, limit=180):
     start=next((m.end() for m in BREAK.finditer(clean,max(head,best-room//2),best)),best)
     return clean[:head].rstrip()+"… "+summary(clean[start:],room)
 
+EVIDENCE_LIMIT=5
+EVIDENCE_SENTENCE=re.compile(r"(?<=[.!?;。！？；])\s+(?=\S)|(?<=[。！？；])(?=\S)")
+EVIDENCE_WORD=re.compile(r"[a-zA-Z][a-zA-Z0-9+#]*|[ァ-ヿー]+|[㐀-鿿]+")
+
+def candidate_description(description, work, limit=180):
+    """Quote a matching passage and name its shared terms. Only examine displayed candidates."""
+    positive=re.split(r"\b(?:do not use|not intended for|avoid using)\b",description,
+                      maxsplit=1,flags=re.I)[0]
+    request=OPEN["strip_references"](work)
+    asked=OPEN["words"](request)-OPEN["ROLE_WORDS"]
+    japanese=OPEN["jp_words"](request)
+    best_sentence=""
+    best_matches={}
+    for sentence in EVIDENCE_SENTENCE.split(positive):
+        matches={}
+        for word in EVIDENCE_WORD.findall(sentence):
+            key=OPEN["canonical"](word.lower())
+            if key in asked and len(word)<=32:
+                matches.setdefault(key,word)
+            elif not word.isascii():
+                for term in sorted(OPEN["jp_words"](word)&japanese):
+                    if term in word:
+                        matches.setdefault(term,term)
+        if len(matches)>len(best_matches):
+            best_sentence=sentence
+            best_matches=matches
+    if not best_matches:
+        return {"summary":snippet(description,work,limit)}
+    terms=sorted(best_matches.values(),key=len,reverse=True)[:3]
+    # Spend part of the existing description budget on the explicit evidence.
+    room=max(55,limit-20-sum(len(t)+4 for t in terms))
+    passage=description if len(description)<=room or positive!=description else best_sentence
+    return {"summary":snippet(passage,work,room),"matched_terms":terms}
+
 # Indexed SKILL.md files found edited while routing; the hook rereads them (auto_index.py).
 STALE=[]
 
@@ -516,8 +550,11 @@ def active_refs(prompt,guide_names,index=INDEX):
             continue
         offered=OPEN["features"](row["name"]+" "+row.get("description",""))[2]
         fit="name_only" if editing and "create" in offered and not offered&EDIT_OPS else "choose" if stage=="open-shortlist" else "read"
+        desc=row.get("description","")
+        detail=(candidate_description(desc,request) if len(out)<EVIDENCE_LIMIT and fit!="name_only"
+                else {"summary":snippet(desc,prompt)})
         out.append({"stage":stage,"name":row["name"],"path":p.as_posix(),"fit":fit,
-                    "summary":snippet(row.get("description",""),prompt),**({"kind":row["kind"]} if row.get("kind") else {}),
+                    **detail,**({"kind":row["kind"]} if row.get("kind") else {}),
                     "selection_reason":(explanations.get(row["path"]) if stage.startswith("open-") else None)
                     or {"operation":stage, "basis":"local_name_match" if stage=="specific-local" else "fixed_stage_match"}})
     return out[:8]
@@ -556,7 +593,7 @@ def close_scores(pool,near=CLOSE):
     rival=next((sc for sc,row in pool[1:] if row["name"]!=best[1]["name"]),0)
     return rival>=best[0]*near
 
-def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180,*,pool=None):
+def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180,*,pool=None,include_description=False):
     """Installed skills for a task the agent wrote itself, as a line ("write an apology email
     to a client"). The agent's wording reaches skills the user's own words missed; it is
     scored like a request, and the closest few are listed for the agent to choose among.
@@ -571,6 +608,7 @@ def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180,*,pool=No
         p=indexed_path(row,allowed)
         if p is None:continue
         out.append({"name":row["name"],"path":p.as_posix(),"summary":snippet(row.get("description",""),task,summary_len),
+                    **({"description":row.get("description","")} if include_description else {}),
                     **({"kind":row["kind"]} if row.get("kind") else {})})
     return out
 

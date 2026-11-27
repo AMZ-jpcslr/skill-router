@@ -445,6 +445,12 @@ def compact(text):
     return re.sub(r"\s+","",normalize(text))
 
 LEAD_SENTENCE=re.compile(r"(?<=。)|(?<=[.!?])\s+(?=[A-Z])")
+# A parenthesized list can name inputs (e.g. "tickets/docs/PRs"). A task
+# mentioned only there can still match a query, but does not define the skill.
+INPUT_LIST=re.compile(
+    r"(?:\b(?:data(?:sets?)?|sources?|inputs?|records?|artifacts?|files?|formats?|documents?|materials?)"
+    r"|入力|資料|記録|形式|データ(?:セット)?)\s*[(（](?:[^()（）,/、\n]+[,/、]){2}[^()（）\n]+[)）]",
+    re.I)
 
 def prepare(row):
     """Everything the general retrieval needs from one skill row; cacheable per row."""
@@ -459,6 +465,10 @@ def prepare(row):
     # or the one task its text names. A text naming several (a writing guide listing minutes,
     # PR descriptions and AI-sounding prose) covers them among others.
     told=meta[2]&TASKS
+    if len(told)==1:
+        outside_inputs=INPUT_LIST.sub(" ",positive)
+        if outside_inputs!=positive:
+            told=told & features(outside_inputs)[2]
     special=(features(n.replace("-"," "))[2]&TASKS)|(told if len(told)==1 else frozenset())
     # Its scope, likewise, is what its name and first sentence say.
     lead=LEAD_SENTENCE.split(positive.strip(),maxsplit=1)[0][:160]

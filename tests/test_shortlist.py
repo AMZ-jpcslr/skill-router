@@ -96,6 +96,18 @@ class Shortlist(unittest.TestCase):
 
 
 class Snippet(unittest.TestCase):
+    def test_match_uses_an_indexed_passage_and_only_its_own_terms(self):
+        L = runpy.run_path(str(PLUGIN / "skills/skill-router-settings/local_index.py"))
+        describe = L["candidate_description"]
+        text = ("General tools for geospatial analysis and assorted workflows. "
+                "Measure distances between plate boundaries. Do not use for volcano modeling.")
+        detail = describe(text, "Measure plate distances and volcano eruptions.")
+        self.assertEqual(set(detail["matched_terms"]), {"Measure", "plate", "distances"})
+        self.assertIn("plate boundaries", detail["summary"])
+        self.assertNotIn("matched_terms", describe(text, "Model volcano eruptions."))
+        self.assertNotIn("matched_terms", describe(text, "Write the output to /tmp/distances.txt"))
+        self.assertEqual(describe("画像を回転する。", "画像を回転して。")["matched_terms"], ["画像", "回転"])
+
     def test_the_part_naming_the_request_is_kept(self):
         L = runpy.run_path(str(PLUGIN / "skills/skill-router-settings/local_index.py"))
         text = ("Use this skill any time a spreadsheet file is the primary input or output. This means any task "
