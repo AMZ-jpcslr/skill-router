@@ -6,9 +6,9 @@
           {
             "type": "command",
             "command": "python3 -I -B -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.py\" 2>/dev/null || python -I -B -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.py\"",
-            "commandWindows": "python -I -B -X utf8 -c \"import os,runpy,sys;sys.argv.extend(['hook']);runpy.run_path(os.path.join(os.environ['PLUGIN_ROOT'],'skills','skill-router-settings','router.py'),run_name='__main__')\"",
+            "commandWindows": "python -I -B -X utf8 -c \"import os,runpy,sys;sys.argv.extend(['hook']);runpy.run_path(os.path.join(os.environ['PLUGIN_ROOT'],'skills','skill-omakase-settings','router.py'),run_name='__main__')\"",
             "timeout": 5,
-            "statusMessage": "Skill Router beta.9"
+            "statusMessage": "Skill Omakase beta.9"
           }
         ]
       }
@@ -19,7 +19,7 @@
           {
             "type": "command",
             "command": "python3 -I -B -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.py\" 2>/dev/null || python -I -B -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.py\"",
-            "commandWindows": "python -I -B -X utf8 -c \"import os,runpy,sys;sys.argv.extend(['hook']);runpy.run_path(os.path.join(os.environ['PLUGIN_ROOT'],'skills','skill-router-settings','router.py'),run_name='__main__')\"",
+            "commandWindows": "python -I -B -X utf8 -c \"import os,runpy,sys;sys.argv.extend(['hook']);runpy.run_path(os.path.join(os.environ['PLUGIN_ROOT'],'skills','skill-omakase-settings','router.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ],
@@ -32,7 +32,7 @@
           {
             "type": "command",
             "command": "python3 -I -B -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.py\" stop 2>/dev/null || python -I -B -X utf8 \"${CLAUDE_PLUGIN_ROOT}/hooks/run_hook.py\" stop",
-            "commandWindows": "python -I -B -X utf8 -c \"import os,runpy,sys;sys.argv.extend(['stop']);runpy.run_path(os.path.join(os.environ['PLUGIN_ROOT'],'skills','skill-router-settings','router.py'),run_name='__main__')\"",
+            "commandWindows": "python -I -B -X utf8 -c \"import os,runpy,sys;sys.argv.extend(['stop']);runpy.run_path(os.path.join(os.environ['PLUGIN_ROOT'],'skills','skill-omakase-settings','router.py'),run_name='__main__')\"",
             "timeout": 5
           }
         ]

@@ -2,7 +2,7 @@ import runpy
 import unittest
 from pathlib import Path
 
-ROUTER = Path(__file__).resolve().parents[1] / "plugins" / "skill-router" / "skills" / "skill-router-settings" / "router.py"
+ROUTER = Path(__file__).resolve().parents[1] / "plugins" / "skill-omakase" / "skills" / "skill-omakase-settings" / "router.py"
 
 
 class MainWorkHint(unittest.TestCase):

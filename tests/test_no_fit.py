@@ -11,8 +11,8 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "plugins/skill-router"
-ROUTER = PLUGIN / "skills/skill-router-settings/router.py"
+PLUGIN = ROOT / "plugins/skill-omakase"
+ROUTER = PLUGIN / "skills/skill-omakase-settings/router.py"
 REQUEST = "この契約書のリスクのある条項をレビューして"
 
 
@@ -22,14 +22,14 @@ class NoFitRecord(unittest.TestCase):
         base = Path(self.tmp.name)
         self.home, self.project = base / "home", base / "project"
         (self.project / ".git").mkdir(parents=True)
-        self.state = self.home / ".skill-router-beta"
+        self.state = self.home / ".skill-omakase"
         self.state.mkdir(parents=True)
         (self.state / "settings.json").write_text(json.dumps(
             {"all_projects": False, "folderless": False, "projects": [str(self.project.resolve())]}), encoding="utf-8")
         skill = self.home / ".agents/skills/apology-letters/SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_text("---\nname: apology-letters\ndescription: Formal apology letter templates for customers.\n---\n", encoding="utf-8")
-        self.env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "SKILL_ROUTER_HOST", "SKILL_ROUTER_STATE_DIR")}
+        self.env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "SKILL_OMAKASE_HOST", "SKILL_OMAKASE_STATE_DIR")}
         self.env.update(HOME=str(self.home), USERPROFILE=str(self.home), CLAUDE_PLUGIN_ROOT=str(PLUGIN),
                         CLAUDE_CONFIG_DIR=str(self.home / ".claude"), CODEX_HOME=str(self.home / ".codex"))
         subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(ROUTER), "index", "refresh"],
@@ -144,7 +144,7 @@ class NoFitRecord(unittest.TestCase):
 
 class NoFitThemes(unittest.TestCase):
     def setUp(self):
-        self.G = runpy.run_path(str(PLUGIN / "skills/skill-router-settings/gap_log.py"))
+        self.G = runpy.run_path(str(PLUGIN / "skills/skill-omakase-settings/gap_log.py"))
 
     def test_kinds_of_work_are_grouped_by_shared_words(self):
         e = lambda d, *w: {"d": d, "h": "codex", "w": list(w)}
@@ -161,7 +161,7 @@ class NoFitReport(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
-        self.env = {"SKILL_ROUTER_STATE_DIR": str(self.home / "state"), "CLAUDE_CONFIG_DIR": str(self.home / ".claude"),
+        self.env = {"SKILL_OMAKASE_STATE_DIR": str(self.home / "state"), "CLAUDE_CONFIG_DIR": str(self.home / ".claude"),
                     "CODEX_HOME": str(self.home / ".codex")}
         self.saved = {k: os.environ.get(k) for k in self.env}
         os.environ.update(self.env)

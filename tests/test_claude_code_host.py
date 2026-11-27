@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "plugins/skill-router"
+PLUGIN = ROOT / "plugins/skill-omakase"
 PROMPT = "README.md の日本語を自然に整えて。リンク先と見出しは変えないで。"
 
 
@@ -18,7 +18,7 @@ class ClaudeCodeHost(unittest.TestCase):
         base = Path(self.tmp.name)
         self.home, self.project = base / "home", base / "project"
         (self.project / ".git").mkdir(parents=True)
-        state = self.home / ".skill-router-beta"
+        state = self.home / ".skill-omakase"
         state.mkdir(parents=True)
         (state / "settings.json").write_text(json.dumps(
             {"all_projects": False, "folderless": False, "projects": [str(self.project.resolve())]}), encoding="utf-8")
@@ -27,7 +27,7 @@ class ClaudeCodeHost(unittest.TestCase):
         self.tmp.cleanup()
 
     def run_hook(self, extra_env, prompt=PROMPT, shell=False):
-        env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "SKILL_ROUTER_HOST", "SKILL_ROUTER_STATE_DIR")}
+        env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "SKILL_OMAKASE_HOST", "SKILL_OMAKASE_STATE_DIR")}
         env.update(HOME=str(self.home), USERPROFILE=str(self.home), CLAUDE_PLUGIN_ROOT=str(PLUGIN), **extra_env)
         event = json.dumps({"hook_event_name": "UserPromptSubmit", "prompt": prompt, "cwd": str(self.project)})
         if shell:
@@ -54,7 +54,7 @@ class ClaudeCodeHost(unittest.TestCase):
         skill.parent.mkdir(parents=True)
         skill.write_text("---\nname: nihongo\ndescription: Japanese writing and Japanese proofreading; polish Japanese prose.\n---\n", encoding="utf-8")
         env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
-        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-router-settings/router.py"), "index", "refresh"],
+        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-omakase-settings/router.py"), "index", "refresh"],
                        env=env, check=True, capture_output=True, timeout=30)
 
     def test_claude_code_reads_candidates_by_default(self):
@@ -70,7 +70,7 @@ class ClaudeCodeHost(unittest.TestCase):
         skill.parent.mkdir(parents=True)
         skill.write_text("---\nname: apology-letters\ndescription: Write apology emails and letters to clients.\n---\n", encoding="utf-8")
         env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
-        router = PLUGIN / "skills/skill-router-settings/router.py"
+        router = PLUGIN / "skills/skill-omakase-settings/router.py"
         subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(router), "index", "refresh"],
                        env=env, check=True, capture_output=True, timeout=30)
         txt = self.context(self.run_hook({}, prompt="取引先に納期の遅れを詫びる連絡を書いて。"))
@@ -85,7 +85,7 @@ class ClaudeCodeHost(unittest.TestCase):
         skill.parent.mkdir(parents=True)
         skill.write_text("---\nname: nihongo-native\ndescription: Japanese writing and Japanese proofreading; polish Japanese prose.\n---\n", encoding="utf-8")
         env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
-        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-router-settings/router.py"), "index", "refresh"],
+        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-omakase-settings/router.py"), "index", "refresh"],
                        env=env, check=True, capture_output=True, timeout=30)
 
     def test_native_skills_are_named_not_read(self):
@@ -124,14 +124,14 @@ class ClaudeCodeHost(unittest.TestCase):
         skill.parent.mkdir(parents=True)
         skill.write_text("---\nname: readme\ndescription: Create README files and generate project documentation.\n---\n", encoding="utf-8")
         env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
-        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-router-settings/router.py"), "index", "refresh"],
+        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-omakase-settings/router.py"), "index", "refresh"],
                        env=env, check=True, capture_output=True, timeout=30)
         txt = self.context(self.run_hook({}))
         self.assertIn("既存の文章を直す今回の依頼とは作業が異なる候補", txt)
         self.assertNotIn("SKILL.mdをReadで1回開いて", txt)
 
     def test_child_run_is_silent(self):
-        self.assertEqual(self.run_hook({"SKILL_ROUTER_CHILD": "1"}), {})
+        self.assertEqual(self.run_hook({"SKILL_OMAKASE_CHILD": "1"}), {})
 
     def test_codex_candidates_unchanged(self):
         self.add_indexed_skill()
@@ -151,7 +151,7 @@ class ClaudeCodeHost(unittest.TestCase):
 
     def settings_cli(self, *args):
         env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
-        r = subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-router-settings/router.py"), *args],
+        r = subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-omakase-settings/router.py"), *args],
                            env=env, cwd=self.project, capture_output=True, timeout=30)
         self.assertEqual(r.returncode, 0, r.stderr.decode(errors="replace"))
         return json.loads(r.stdout)
@@ -159,20 +159,20 @@ class ClaudeCodeHost(unittest.TestCase):
     def test_picks_line_on_by_default_in_both_hosts(self):
         for env in ({}, {"PLUGIN_ROOT": str(PLUGIN)}):
             txt = self.context(self.run_hook(env))
-            self.assertIn("`Skill Router: ` に続けて", txt)
-            self.assertIn("Skill Router: 該当なし", txt)
+            self.assertIn("`Skill Omakase: ` に続けて", txt)
+            self.assertIn("Skill Omakase: 該当なし", txt)
 
     def test_picks_line_on_no_match(self):
         self.add_indexed_skill()
         txt = self.context(self.run_hook({}, "このCSVの列名を英語に揃えて、重複行を消して。"))
-        self.assertIn("`Skill Router: ` に続けて", txt)
+        self.assertIn("`Skill Omakase: ` に続けて", txt)
 
     def test_picks_line_can_be_turned_off(self):
         self.assertTrue(self.settings_cli("status")["show_picks"])
         self.assertFalse(self.settings_cli("show-picks", "off")["show_picks"])
         for env in ({}, {"PLUGIN_ROOT": str(PLUGIN)}):
             txt = self.context(self.run_hook(env))
-            self.assertNotIn("Skill Router: ", txt)
+            self.assertNotIn("Skill Omakase: ", txt)
             self.assertIn("- readme:", txt)
         # Turning routing off and on again keeps the display preference.
         self.settings_cli("off")
@@ -180,14 +180,14 @@ class ClaudeCodeHost(unittest.TestCase):
 
     def test_detailed_summary_replaces_picks_line(self):
         txt = self.context(self.run_hook({}, PROMPT + "\nスキル判断を表示"))
-        self.assertNotIn("`Skill Router: ` に続けて", txt)
+        self.assertNotIn("`Skill Omakase: ` に続けて", txt)
 
     def test_opt_out_and_small_talk_are_silent(self):
         self.assertEqual(self.run_hook({}, PROMPT + "\n今回はスキルを使わないで"), {})
         self.assertEqual(self.run_hook({}, "123 + 456 はいくつ？"), {})
 
     def test_disabled_folder_is_silent(self):
-        (self.home / ".skill-router-beta/settings.json").write_text(json.dumps(
+        (self.home / ".skill-omakase/settings.json").write_text(json.dumps(
             {"all_projects": False, "folderless": False, "projects": []}), encoding="utf-8")
         self.assertEqual(self.run_hook({}), {})
 
@@ -204,7 +204,7 @@ class ClaudeCodeHost(unittest.TestCase):
         self.assertEqual(claude["version"], codex["version"])
         entry = next(p for p in market["plugins"] if p["name"] == claude["name"])
         self.assertTrue((ROOT / entry["source"]).resolve() == PLUGIN.resolve())
-        for skill in ("skill-router-settings",):
+        for skill in ("skill-omakase-settings",):
             head = (PLUGIN / "skills" / skill / "SKILL.md").read_text(encoding="utf-8").split("---")[1]
             self.assertIn("disable-model-invocation: true", head)
 

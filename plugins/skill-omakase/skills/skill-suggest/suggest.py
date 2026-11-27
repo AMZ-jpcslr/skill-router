@@ -24,7 +24,7 @@ import unicodedata
 import zlib
 
 HERE = Path(__file__).resolve().parent
-CORE = HERE.parent / "skill-router-settings"
+CORE = HERE.parent / "skill-omakase-settings"
 HOME = Path.home()
 CLAUDE_HOME = Path(os.environ.get("CLAUDE_CONFIG_DIR") or HOME / ".claude")
 CODEX_HOME = Path(os.environ.get("CODEX_HOME") or HOME / ".codex")
@@ -32,7 +32,7 @@ NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,79}\Z")
 SKILL_PATH = re.compile(r"[/\\]([a-z0-9][a-z0-9-]{0,79})[/\\]+SKILL\.md\b", re.I)
 INVOKED = re.compile(r"(?:^|(?<=\s))[/$](?:[a-z0-9-]+:)?([a-z0-9][a-z0-9-]{0,79})(?![a-z0-9_:/\\-]|\.\S)", re.I)
 TERM = re.compile(r"[a-z][a-z0-9+#.-]{2,}|[ァ-ヿー]{3,}|[㐀-鿿]{2,6}")
-OWN = {"skill-suggest", "skill-router-settings"}
+OWN = {"skill-suggest", "skill-omakase-settings", "skill-router-settings"}
 TRUST = {"official": 0, "curated": 1, "community": 2}
 MAX_PROMPTS = 5000
 MAX_PROMPT_CHARS = 4000
@@ -200,7 +200,7 @@ def read_skill_use(since, budget):
 
 
 def engine():
-    os.environ.setdefault("SKILL_ROUTER_STATE_DIR", str(HOME / ".skill-router-beta"))
+    os.environ.setdefault("SKILL_OMAKASE_STATE_DIR", str(runpy.run_path(str(CORE / "state_dir.py"))["STATE_DIR"]))
     L = runpy.run_path(str(CORE / "local_index.py"))
     R = runpy.run_path(str(CORE / "router.py"))
     return L, R

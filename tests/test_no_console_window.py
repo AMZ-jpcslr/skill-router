@@ -6,8 +6,8 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "plugins/skill-router"
-CORE = PLUGIN / "skills/skill-router-settings"
+PLUGIN = ROOT / "plugins/skill-omakase"
+CORE = PLUGIN / "skills/skill-omakase-settings"
 LAUNCHERS = {"run", "Popen", "call", "check_call", "check_output"}
 
 

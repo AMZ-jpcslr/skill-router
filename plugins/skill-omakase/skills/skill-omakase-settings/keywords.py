@@ -83,10 +83,10 @@ def claude_runner(prompt):
     exe = find_claude()
     if not exe:
         raise RuntimeError("claude command not found")
-    cmd = [exe, "-p", "--model", os.environ.get("SKILL_ROUTER_KEYWORD_MODEL", "haiku"),
+    cmd = [exe, "-p", "--model", os.environ.get("SKILL_OMAKASE_KEYWORD_MODEL", "haiku"),
            "--output-format", "json", "--json-schema", json.dumps(SCHEMA),
            "--tools", "", "--strict-mcp-config", "--no-session-persistence"]
-    env = dict(os.environ, SKILL_ROUTER_CHILD="1")
+    env = dict(os.environ, SKILL_OMAKASE_CHILD="1")
     done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
                           timeout=300, env=env, **NO_WINDOW)
     if done.returncode:
@@ -102,10 +102,10 @@ def claude_runner(prompt):
 
 
 def command_runner(cmd):
-    """SKILL_ROUTER_KEYWORD_CMD: a command that reads the prompt on stdin and prints the JSON."""
+    """SKILL_OMAKASE_KEYWORD_CMD: a command that reads the prompt on stdin and prints the JSON."""
     def run(prompt):
         done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
-                              timeout=300, shell=True, env=dict(os.environ, SKILL_ROUTER_CHILD="1"),
+                              timeout=300, shell=True, env=dict(os.environ, SKILL_OMAKASE_CHILD="1"),
                               **NO_WINDOW)
         if done.returncode:
             raise RuntimeError(f"keyword command exited {done.returncode}")
@@ -118,7 +118,7 @@ class Unavailable(RuntimeError):
 
 
 def default_runner():
-    cmd = os.environ.get("SKILL_ROUTER_KEYWORD_CMD")
+    cmd = os.environ.get("SKILL_OMAKASE_KEYWORD_CMD")
     if cmd:
         return command_runner(cmd)
     if not find_claude():

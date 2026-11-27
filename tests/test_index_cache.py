@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-CORE = Path(__file__).resolve().parents[1] / "plugins/skill-router/skills/skill-router-settings"
+CORE = Path(__file__).resolve().parents[1] / "plugins/skill-omakase/skills/skill-omakase-settings"
 
 
 def row(name, description, i):
@@ -24,12 +24,12 @@ ROWS += [row(f"filler-{t}-{i}", f"Work with {t} projects: setup and reporting fo
 class IndexCache(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        os.environ["SKILL_ROUTER_STATE_DIR"] = self.tmp.name
+        os.environ["SKILL_OMAKASE_STATE_DIR"] = self.tmp.name
         self.L = runpy.run_path(str(CORE / "local_index.py"))
         self.K = runpy.run_path(str(CORE / "keywords.py"))
 
     def tearDown(self):
-        os.environ.pop("SKILL_ROUTER_STATE_DIR", None)
+        os.environ.pop("SKILL_OMAKASE_STATE_DIR", None)
         self.tmp.cleanup()
 
     def names(self, prompt, rows, prepared=None):

@@ -12,8 +12,52 @@ import unittest
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE = ROOT / "plugins/skill-router/skills/skill-router-settings"
+CORE = ROOT / "plugins/skill-omakase/skills/skill-omakase-settings"
 ROUTER = CORE / "router.py"
+
+
+class RenamedFromSkillRouter(unittest.TestCase):
+    """Testers who installed beta.9 or earlier (Skill Router) keep their settings, index and records."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        base = Path(self.tmp.name)
+        self.home, self.project = base / "home", base / "project"
+        (self.project / ".git").mkdir(parents=True)
+        self.home.mkdir()
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith(("SKILL_OMAKASE_", "SKILL_ROUTER_"))}
+        self.env.update(HOME=str(self.home), USERPROFILE=str(self.home))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def run_router(self, *args, **env):
+        p = subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(ROUTER), *args], cwd=self.project,
+                           env={**self.env, **env}, capture_output=True, text=True, encoding="utf-8", timeout=60)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        return json.loads(p.stdout)
+
+    def test_old_folder_moves_to_new_name(self):
+        self.assertTrue(self.run_router("project", "on")["current_active"])
+        new, old = self.home / ".skill-omakase", self.home / ".skill-router-beta"
+        new.rename(old)
+        (old / "no-fit.jsonl").write_text("{}\n", encoding="utf-8")
+        self.assertTrue(self.run_router("status")["current_active"], "settings from the old folder must carry over")
+        self.assertFalse(old.exists())
+        self.assertTrue((new / "settings.json").is_file())
+        self.assertTrue((new / "no-fit.jsonl").is_file())
+
+    def test_new_folder_wins_over_old(self):
+        self.run_router("project", "on")
+        (self.home / ".skill-router-beta").mkdir()
+        self.assertTrue(self.run_router("status")["current_active"])
+        self.assertTrue((self.home / ".skill-router-beta").is_dir(), "an existing new folder is never replaced")
+
+    def test_old_environment_variable_still_works(self):
+        custom = self.home / "elsewhere"
+        self.run_router("project", "on", SKILL_ROUTER_STATE_DIR=str(custom))
+        self.assertTrue((custom / "settings.json").is_file())
+        self.assertFalse((self.home / ".skill-omakase").exists())
 
 
 class FirstRun(unittest.TestCase):
@@ -25,7 +69,7 @@ class FirstRun(unittest.TestCase):
         self.home, self.project = base / "home", base / "project"
         (self.project / ".git").mkdir(parents=True)
         self.home.mkdir()
-        self.env = {k: v for k, v in os.environ.items() if k not in ("SKILL_ROUTER_STATE_DIR", "SKILL_ROUTER_HOST")}
+        self.env = {k: v for k, v in os.environ.items() if k not in ("SKILL_OMAKASE_STATE_DIR", "SKILL_OMAKASE_HOST", "SKILL_ROUTER_STATE_DIR", "SKILL_ROUTER_HOST")}
         self.env.update(HOME=str(self.home), USERPROFILE=str(self.home))
 
     def tearDown(self):
@@ -38,7 +82,7 @@ class FirstRun(unittest.TestCase):
         return json.loads(p.stdout)
 
     def test_settings_from_nothing(self):
-        settings = self.home / ".skill-router-beta/settings.json"
+        settings = self.home / ".skill-omakase/settings.json"
         self.assertFalse(settings.exists())
         first = self.run_router("status")
         self.assertFalse(first["current_active"])
@@ -67,8 +111,8 @@ class MetaRequestsAboutTheIndex(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.saved = os.environ.get("SKILL_ROUTER_STATE_DIR")
-        os.environ["SKILL_ROUTER_STATE_DIR"] = self.tmp.name
+        self.saved = os.environ.get("SKILL_OMAKASE_STATE_DIR")
+        os.environ["SKILL_OMAKASE_STATE_DIR"] = self.tmp.name
         self.L = runpy.run_path(str(CORE / "local_index.py"))
         self.rows = [{"name": "sql-tuning", "path": "/s/sql-tuning/SKILL.md",
                       "description": "Optimize slow SQL queries with indexing and query plan tuning.",
@@ -76,9 +120,9 @@ class MetaRequestsAboutTheIndex(unittest.TestCase):
 
     def tearDown(self):
         if self.saved is None:
-            os.environ.pop("SKILL_ROUTER_STATE_DIR", None)
+            os.environ.pop("SKILL_OMAKASE_STATE_DIR", None)
         else:
-            os.environ["SKILL_ROUTER_STATE_DIR"] = self.saved
+            os.environ["SKILL_OMAKASE_STATE_DIR"] = self.saved
         self.tmp.cleanup()
 
     def picked(self, prompt):
@@ -99,10 +143,10 @@ class ReleaseZip(unittest.TestCase):
     def test_zip_has_no_broken_links_or_development_files(self):
         C = runpy.run_path(str(ROOT / "tools/check_release_zip.py"))
         with tempfile.TemporaryDirectory() as d:
-            z = C["build"](str(Path(d) / "skill-router.zip"))
+            z = C["build"](str(Path(d) / "skill-omakase.zip"))
             self.assertEqual(C["problems"](z), [])
             with zipfile.ZipFile(z) as f:
-                self.assertIn("plugins/skill-router/skills/skill-router-settings/router.py", f.namelist())
+                self.assertIn("plugins/skill-omakase/skills/skill-omakase-settings/router.py", f.namelist())
 
     def test_checker_sees_a_link_left_out_of_the_zip(self):
         C = runpy.run_path(str(ROOT / "tools/check_release_zip.py"))

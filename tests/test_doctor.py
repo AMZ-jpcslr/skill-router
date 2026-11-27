@@ -9,7 +9,7 @@ import runpy
 import tempfile
 import unittest
 
-CORE = Path(__file__).resolve().parents[1] / "plugins/skill-router/skills/skill-router-settings"
+CORE = Path(__file__).resolve().parents[1] / "plugins/skill-omakase/skills/skill-omakase-settings"
 
 
 def row(name, description, i):
@@ -31,13 +31,13 @@ ROWS = FILLER + [
 class Doctor(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        os.environ["SKILL_ROUTER_STATE_DIR"] = self.tmp.name
+        os.environ["SKILL_OMAKASE_STATE_DIR"] = self.tmp.name
         Path(self.tmp.name, "skill-index.json").write_text(
             json.dumps({"version": 2, "roots": [], "records": ROWS}, ensure_ascii=False), encoding="utf-8")
         self.D = runpy.run_path(str(CORE / "doctor.py"))
 
     def tearDown(self):
-        os.environ.pop("SKILL_ROUTER_STATE_DIR", None)
+        os.environ.pop("SKILL_OMAKASE_STATE_DIR", None)
         self.tmp.cleanup()
 
     def call(self, *argv):

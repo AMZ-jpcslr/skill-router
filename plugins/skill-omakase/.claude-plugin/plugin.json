@@ -1,5 +1,5 @@
 {
-  "name": "skill-router",
+  "name": "skill-omakase",
   "version": "0.1.0-beta.9",
   "description": "依頼に合う導入済みスキルと作業ガイドを、スキル名を指定せずに自動で渡します。自動選択は初期状態でオフです。",
   "author": {

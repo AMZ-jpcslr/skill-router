@@ -7,7 +7,7 @@ import tempfile
 import time
 import unittest
 
-PLUGIN = Path(__file__).resolve().parents[1] / "plugins/skill-router"
+PLUGIN = Path(__file__).resolve().parents[1] / "plugins/skill-omakase"
 SUGGEST = PLUGIN / "skills/skill-suggest/suggest.py"
 
 
@@ -22,7 +22,7 @@ class SkillSuggest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
-        self.env = {"SKILL_ROUTER_STATE_DIR": str(self.home / "state"), "CLAUDE_CONFIG_DIR": str(self.home / ".claude"),
+        self.env = {"SKILL_OMAKASE_STATE_DIR": str(self.home / "state"), "CLAUDE_CONFIG_DIR": str(self.home / ".claude"),
                     "CODEX_HOME": str(self.home / ".codex")}
         self.saved = {k: os.environ.get(k) for k in self.env}
         os.environ.update(self.env)
@@ -39,7 +39,7 @@ class SkillSuggest(unittest.TestCase):
         self.tmp.cleanup()
 
     def index(self, *paths):
-        L = runpy.run_path(str(PLUGIN / "skills/skill-router-settings/local_index.py"))
+        L = runpy.run_path(str(PLUGIN / "skills/skill-omakase-settings/local_index.py"))
         roots = sorted({p.parent.parent for p in paths})
         L["scan"](roots, L["INDEX"])
 

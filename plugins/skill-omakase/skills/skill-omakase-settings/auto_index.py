@@ -176,7 +176,7 @@ def check(L, stale=(), now=None):
     dirty = stats is not None or st.get("fp") != fp or st.get("kw_code") != code
     st.update(fp=fp, kw_code=code, version=1)
     # Keywords: only for users who made them once; new or changed skills, or new keyword code.
-    if L["KEYWORDS"].is_file() and not os.environ.get("SKILL_ROUTER_NO_AUTO_KEYWORDS"):
+    if L["KEYWORDS"].is_file() and not os.environ.get("SKILL_OMAKASE_NO_AUTO_KEYWORDS"):
         kw = _load(L, kw_path)
         want = [float(st.get("changed") or 0), code]
         behind = kw.get("done_for") != want
@@ -234,14 +234,14 @@ def status(L):
     auto_path, kw_path = _paths(L)
     st, kw = _load(L, auto_path), _load(L, kw_path)
     return {"last_whole_walk": st.get("swept"), "last_change": st.get("changed"),
-            "keywords_auto": L["KEYWORDS"].is_file() and not os.environ.get("SKILL_ROUTER_NO_AUTO_KEYWORDS"),
+            "keywords_auto": L["KEYWORDS"].is_file() and not os.environ.get("SKILL_OMAKASE_NO_AUTO_KEYWORDS"),
             "keywords_last_run": {k: kw[k] for k in ("finished", "keywords_written", "keywords_failed", "error") if k in kw}}
 
 
 if __name__ == "__main__":
     import runpy
     if len(sys.argv) == 3 and sys.argv[1] == "keywords":
-        os.environ["SKILL_ROUTER_CHILD"] = "1"
+        os.environ["SKILL_OMAKASE_CHILD"] = "1"
         L = runpy.run_path(str(HERE / "local_index.py"))
         try:
             run_keywords(L, json.loads(sys.argv[2]))
