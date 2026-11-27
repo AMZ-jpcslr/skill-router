@@ -68,6 +68,14 @@ class RequestForm(unittest.TestCase):
 
 
 class Shortlist(unittest.TestCase):
+    def test_separate_pdf_task_keeps_debugging_and_docker(self):
+        rows = FILLER + [row("pdf-official", "Extract tables and text from PDF documents."),
+                         row("systematic-debugging", "Systematic debugging: root cause and reproduce bugs."),
+                         row("docker-expert", "Docker containerization: create Dockerfiles, images and compose files.")]
+        prompt = "DockerのDockerfileが動かない不具合の原因を調べて直して。あとPDFから表を抽出して。"
+        picks = INDEX["rank"](prompt, rows, ["debugging"])
+        self.assertEqual({r["name"] for _, r in picks}, {"pdf-official", "systematic-debugging", "docker-expert"})
+
     def test_close_candidates_are_listed_for_the_agent(self):
         same = "Docker containerization: create Dockerfiles, images and compose files."
         rows = FILLER + [row("docker-expert", same), row("docker-pro", same)]
@@ -81,6 +89,16 @@ class Shortlist(unittest.TestCase):
 
 
 class FoldedDescription(unittest.TestCase):
+    def test_valid_block_headers_and_multiline_plain_scalars(self):
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / "SKILL.md"
+            for header in ("|2-", ">2+", "> # comment", "|-2 # folded"):
+                with self.subTest(header=header):
+                    path.write_text(f"--- \t\nname: example\ndescription: {header}\n  First\n  second\n--- \nbody")
+                    self.assertEqual(INDEX["metadata"](path), ("example", "First second"))
+            path.write_text("---\nname: example\ndescription: First\n\n  second\n---\n")
+            self.assertEqual(INDEX["metadata"](path), ("example", "First second"))
+
     def test_description_continued_on_indented_lines(self):
         with tempfile.TemporaryDirectory() as d:
             p = Path(d) / "SKILL.md"

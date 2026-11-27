@@ -144,6 +144,7 @@ def check(L, stale=(), now=None):
     now = time.time() if now is None else now
     auto_path, kw_path = _paths(L)
     st = _load(L, auto_path)
+    previous_target = st.get("kw_try_for", [st.get("changed"), st.get("kw_code")])
     rts = roots(L)
     fp = fingerprint(rts)
     # The index format is remembered here, so the index itself is not read on every prompt.
@@ -180,8 +181,10 @@ def check(L, stale=(), now=None):
         want = [float(st.get("changed") or 0), code]
         behind = kw.get("done_for") != want
         wait = KEYWORD_UNAVAILABLE if kw.get("unavailable") else KEYWORD_RETRY
-        if behind and now - float(st.get("kw_try") or 0) > wait:
+        finished_previous = kw.get("done_for") is not None and kw["done_for"] == previous_target
+        if behind and (finished_previous or "kw_try" not in st or now - st["kw_try"] >= wait):
             st["kw_try"] = now
+            st["kw_try_for"] = want
             dirty = True
             done["keywords"] = spawn_keywords(want)
     if dirty:

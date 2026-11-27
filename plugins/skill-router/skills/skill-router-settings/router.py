@@ -152,6 +152,9 @@ def active(kind, root, c):
         return c["folderless"]
     return kind=="project" and (c["all_projects"] or root in map(Path,c["projects"]))
 
+def claude_native(row,root):
+    return Path(row["path"]).is_relative_to(root) or (root/row["name"]/"SKILL.md").is_file()
+
 def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
     if not (c["projects"] or c["all_projects"] or c["folderless"]) or len(raw)>LIMIT:
         return {}
@@ -221,10 +224,10 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         # Claude Code already lists ~/.claude/skills and chooses among them itself; repeating
         # those with a read instruction mostly adds cost. Name them only. Candidates elsewhere
         # (~/.agents/skills) are not in its list, so the Skill tool cannot load them; only a Read does.
-        native_root=(Path.home()/".claude"/"skills").as_posix().rstrip("/")+"/"
+        native_root=(Path.home()/".claude"/"skills").resolve()
         # A skill of the same name in ~/.claude/skills is the one Claude Code will load,
         # even when the index found a copy elsewhere (~/.codex/skills/nihongo).
-        is_native=lambda r:r["path"].startswith(native_root) or (Path.home()/".claude"/"skills"/r["name"]/"SKILL.md").is_file()
+        is_native=lambda r:claude_native(r,native_root)
         # Named with the description excerpt: beside Claude Code's own list, where look-alike
         # skills sit side by side, the excerpt matched to the request is what tells them apart.
         native=list({r["name"]:{"name":r["name"],"summary":r["summary"]} for r in refs if is_native(r)}.values())
@@ -443,12 +446,12 @@ def shortlist(idx,prompt,exclude,claude):
         found=idx["find"](work,SHORTLIST+len(exclude),ratio=0,summary_len=SHORT_SUMMARY)
     except (OSError,ValueError,TypeError,KeyError,RuntimeError):
         return []
-    native=Path.home()/".claude"/"skills"
+    native=(Path.home()/".claude"/"skills").resolve()
     groups={}
     n=0
     for r in found:
         p=Path(r["path"])
-        if r["path"] in exclude or (claude and (native/r["name"]/"SKILL.md").is_file()):
+        if r["path"] in exclude or (claude and claude_native(r,native)):
             continue
         # Rows share their folder (~/.agents/skills/<name>/SKILL.md); the folder is named once.
         base=p.parent.parent.as_posix() if p.parent.name==r["name"] else p.parent.as_posix()
@@ -551,7 +554,7 @@ def todo_response(e):
         return {}
     idx=read_index_module()
     offered=set(d.get("offered",[]))
-    native=Path.home()/".claude"/"skills"
+    native=(Path.home()/".claude"/"skills").resolve()
     claude=os.environ.get("SKILL_ROUTER_HOST")=="claude-code"
     rows=[]
     for t in items:
@@ -561,7 +564,7 @@ def todo_response(e):
         except (OSError,ValueError,TypeError,KeyError,RuntimeError):
             found=[]
         found=[r for r in found if r["path"] not in offered
-               and not (claude and (native/r["name"]/"SKILL.md").is_file())][:TODO_LIMIT]
+               and not (claude and claude_native(r,native))][:TODO_LIMIT]
         if found:
             rows.append({"todo":t[:80],"candidates":sorted(found,key=lambda r:r.get("kind")=="tool")})
             offered.update(r["path"] for r in found)
