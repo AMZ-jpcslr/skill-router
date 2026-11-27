@@ -565,7 +565,7 @@ def analyse(days=60, today=None, include_public=True):
     #    there that went unused cost that budget every turn; the router still finds them
     #    from ~/.agents/skills.
     native_root = (CLAUDE_HOME / "skills").resolve()
-    native = [r for r in all_records if Path(r["path"]).is_relative_to(native_root)]
+    native = [r for r in all_records if L["claude_location"](r["path"], native_root)]
     cost = sum(len(r["name"]) + len(r["description"]) + 4 for r in native)
     if native and (cost > LIST_BUDGET * 0.5 or len(native) > 40):
         idle = [r for r in native if r["name"] not in used and r["name"] not in matched and r["name"] not in named]

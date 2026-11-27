@@ -310,6 +310,18 @@ def rank(prompt,records,guide_names,explanations=None,prepared=None):
 
 EDIT_OPS=frozenset({"edit","proofread","translate","ai-writing"})
 
+def claude_location(path,root):
+    """Direct personal skills take precedence over account-synced skills, then other copies."""
+    folder=Path(path).parent
+    if folder.parent==root and folder.name.casefold()!="synced":
+        return 2
+    return int(folder.is_relative_to(root/"synced") and folder!=root/"synced")
+
+def claude_native(row,root):
+    # A direct copy may exist even when the candidate came from another indexed root.
+    return bool(claude_location(row["path"],root)) or (row["name"].casefold()!="synced" and
+            (root/row["name"]/"SKILL.md").is_file())
+
 def one_per_name(records):
     """The same skill installed in two places (~/.codex/skills and ~/.claude/skills) is one
     candidate, not a tie that hides both. Prefer the copy Claude Code loads itself."""
@@ -324,7 +336,7 @@ def one_per_name(records):
         # Only a name collision needs a native-path check. Keep the first native copy.
         if native is None:
             native=(HOME/".claude"/"skills").resolve()
-        if Path(row["path"]).is_relative_to(native) and not Path(previous["path"]).is_relative_to(native):
+        if claude_location(row["path"],native)>claude_location(previous["path"],native):
             best[key]=row
     return [r for r in records if best[r["name"]] is r]
 

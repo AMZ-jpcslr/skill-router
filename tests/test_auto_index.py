@@ -171,7 +171,7 @@ class AutoIndex(unittest.TestCase):
             self.L["command"](["remove-root", str(spelling)])
             self.assertEqual(self.L["roots"](), [])
 
-    def test_nested_native_and_system_skills_with_noncanonical_home(self):
+    def test_nested_personal_and_system_skills_with_noncanonical_home(self):
         spelled = self.skills / ".." / ".."
         native = self.home / ".claude/skills"
         nested = write_skill(native / "pack", "my-skill", "Use a nested native skill.")
@@ -183,9 +183,13 @@ class AutoIndex(unittest.TestCase):
         rows = L["read_json"](L["INDEX"], {})["records"]
         self.assertIn("system-skill", {r["name"] for r in rows})
         copies = [{"name": "my-skill", "path": str(p.resolve())} for p in (external, nested)]
-        self.assertEqual(L["one_per_name"](copies), [copies[1]])
-        R = runpy.run_path(str(CORE / "router.py"))
-        self.assertTrue(R["claude_native"](copies[1], (spelled / ".claude/skills").resolve()))
+        self.assertEqual(L["one_per_name"](copies), [copies[0]])
+        native_root=(spelled / ".claude/skills").resolve()
+        self.assertFalse(L["claude_native"](copies[1], native_root))
+        direct=write_skill(native, "my-skill", "Direct personal skill.")
+        self.assertTrue(L["claude_native"](copies[1], native_root))
+        winner={"name":"my-skill","path":str(direct.resolve())}
+        self.assertEqual(L["one_per_name"](copies+[winner]), [winner])
 
     def test_find_checks_indexed_names_and_canonical_paths(self):
         from unittest.mock import patch
