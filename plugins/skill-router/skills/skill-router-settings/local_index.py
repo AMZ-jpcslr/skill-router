@@ -536,19 +536,22 @@ def contested(task,index=INDEX,near=CLOSE):
     """True when two differently named skills score within `near` of each other for the task, so
     the words of the request alone cannot tell which fits; the agent's own wording of the main
     work, and a look at the descriptions side by side, can."""
-    pool=scored(task,index)
+    return close_scores(scored(task,index),near)
+
+def close_scores(pool,near=CLOSE):
     if len(pool)<2:return False
     best=pool[0]
     rival=next((sc for sc,row in pool[1:] if row["name"]!=best[1]["name"]),0)
     return rival>=best[0]*near
 
-def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180):
+def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180,*,pool=None):
     """Installed skills for a task the agent wrote itself, as a line ("write an apology email
     to a client"). The agent's wording reaches skills the user's own words missed; it is
     scored like a request, and the closest few are listed for the agent to choose among.
     With ratio 0 and a larger limit it is the hook's wide shortlist: every skill sharing evidence
     with the request, best first, for the agent to choose among."""
-    pool=scored(task,index)
+    if pool is None:
+        pool=scored(task,index)
     allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
     out=[]
     for sc,row in pool:
