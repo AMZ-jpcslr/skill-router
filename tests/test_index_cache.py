@@ -131,7 +131,8 @@ class IndexCache(unittest.TestCase):
             self.assertEqual(self.L["one_per_name"](ROWS), ROWS)
 
     def test_first_native_copy_keeps_its_original_position(self):
-        home = Path(self.tmp.name)
+        # scan() stores paths under resolved roots. Windows TEMP may use a short name.
+        home = Path(self.tmp.name).resolve()
         first = dict(ROWS[0], path=str(home / ".agents/skills/docker/SKILL.md"))
         native = dict(first, path=str(home / ".claude/skills/pack/docker/SKILL.md"))
         later = dict(first, path=str(home / ".claude/skills/docker/SKILL.md"))
