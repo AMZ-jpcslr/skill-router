@@ -52,6 +52,7 @@ class Doctor(unittest.TestCase):
         hard = {h["name"]: h for h in r["hard_to_pick"]}
         self.assertIn("helper", hard)
         self.assertIn("too_short", hard["helper"]["issues"])
+        self.assertIn("generic_name", hard["helper"]["issues"])
         self.assertNotIn("mermaid-diagrams", hard)
 
     def test_overlapping_pair_is_found_and_distinct_skill_is_not(self):
@@ -87,6 +88,20 @@ class Doctor(unittest.TestCase):
         Path(self.tmp.name, "skill-index.json").unlink()
         code, r = self.call()
         self.assertEqual((code, r["error"]), (1, "index_missing"))
+
+    def test_description_trial_stops_at_index_limit(self):
+        prefix = ("photo " * 107)[:640]
+        _, first = self.call("--skill", "helper", "--try-description", prefix)
+        _, extended = self.call("--skill", "helper", "--try-description", prefix + " extra exif geojson")
+        self.assertEqual(first["after"], extended["after"])
+
+    def test_no_evidence_does_not_win_an_example(self):
+        from types import SimpleNamespace
+        L = self.D["engine"]()
+        cat = SimpleNamespace(rows=[{"description": "Help", "keywords": ["依頼文のキーワード"]}],
+                              O=L["OPEN"], probe=lambda *args: (-0.35, []))
+        _, wins, examples = self.D["diagnose"](cat, 0)
+        self.assertEqual((wins, examples), (0, 1))
 
     def test_scale(self):
         import time

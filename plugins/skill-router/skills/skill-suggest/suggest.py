@@ -30,7 +30,7 @@ CLAUDE_HOME = Path(os.environ.get("CLAUDE_CONFIG_DIR") or HOME / ".claude")
 CODEX_HOME = Path(os.environ.get("CODEX_HOME") or HOME / ".codex")
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,79}\Z")
 SKILL_PATH = re.compile(r"[/\\]([a-z0-9][a-z0-9-]{0,79})[/\\]+SKILL\.md\b", re.I)
-INVOKED = re.compile(r"(?:^|(?<=\s))[/$](?:[a-z0-9-]+:)?([a-z0-9][a-z0-9-]{1,79})(?![a-z0-9-])", re.I)
+INVOKED = re.compile(r"(?:^|(?<=\s))[/$](?:[a-z0-9-]+:)?([a-z0-9][a-z0-9-]{0,79})(?![a-z0-9_:/\\-]|\.\S)", re.I)
 TERM = re.compile(r"[a-z][a-z0-9+#.-]{2,}|[ァ-ヿー]{3,}|[㐀-鿿]{2,6}")
 OWN = {"skill-suggest", "skill-router-settings"}
 TRUST = {"official": 0, "curated": 1, "community": 2}
@@ -75,7 +75,10 @@ def when(value):
         if isinstance(value, (int, float)):
             return datetime.fromtimestamp(value / 1000 if value > 1e11 else value, timezone.utc)
         if isinstance(value, str):
-            return datetime.fromisoformat(value.replace("Z", "+00:00"))
+            # Python 3.10 accepts only three or six fractional digits.
+            stamp = re.sub(r"(?<=:\d\d)[.,](\d+)", lambda m: "." + m[1][:6].ljust(6, "0"), value)
+            parsed = datetime.fromisoformat(stamp.replace("Z", "+00:00"))
+            return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
     except (ValueError, OSError, OverflowError):
         return None
     return None
@@ -181,6 +184,8 @@ def read_skill_use(since, budget):
             try:
                 o = json.loads(raw)
             except ValueError:
+                continue
+            if not isinstance(o, dict):
                 continue
             t = when(o.get("timestamp"))
             if not t or t < since:
@@ -493,7 +498,7 @@ def analyse(days=60, today=None, include_public=True):
     used = read_skill_use(since, budget)
     index = L["read_json"](L["INDEX"], {})
     all_records = index.get("records", []) if isinstance(index, dict) else []
-    records = borrow_keywords(L["with_keywords"](L["one_per_name"](all_records)), L)
+    records = L["with_keywords"](L["one_per_name"](all_records))
     prepared = L["prepared_features"](records, save=False)
     names = {r["name"] for r in all_records}
     work_clauses = L["OPEN"]["work_clauses"]
@@ -509,7 +514,7 @@ def analyse(days=60, today=None, include_public=True):
         hosts[host] += 1
         day = t.date()
         called = {m.group(1).lower() for m in INVOKED.finditer(text)} & names
-        bare = INVOKED.sub(" ", text) if called else text
+        bare = INVOKED.sub(lambda m: " " if m[1].lower() in called else m[0], text) if called else text
         parts = work_clauses(bare)
         if not parts and not called:
             continue
@@ -559,8 +564,8 @@ def analyse(days=60, today=None, include_public=True):
     # 2. Claude Code lists ~/.claude/skills itself, within a character budget. Skills
     #    there that went unused cost that budget every turn; the router still finds them
     #    from ~/.agents/skills.
-    native_root = (CLAUDE_HOME / "skills").as_posix().casefold().rstrip("/") + "/"
-    native = [r for r in all_records if Path(r["path"]).as_posix().casefold().startswith(native_root)]
+    native_root = (CLAUDE_HOME / "skills").resolve()
+    native = [r for r in all_records if Path(r["path"]).is_relative_to(native_root)]
     cost = sum(len(r["name"]) + len(r["description"]) + 4 for r in native)
     if native and (cost > LIST_BUDGET * 0.5 or len(native) > 40):
         idle = [r for r in native if r["name"] not in used and r["name"] not in matched and r["name"] not in named]
@@ -614,7 +619,8 @@ def analyse(days=60, today=None, include_public=True):
     leftover = []
     if uncovered:
         pub_rows, sources = catalog(L) if include_public else ([], {})
-        pool = [dict(r, source="local") for r in records] + [r for r in pub_rows if r["name"] not in names]
+        local_matches = borrow_keywords(records, L) if include_public else records
+        pool = [dict(r, source="local") for r in local_matches] + [r for r in pub_rows if r["name"] not in names]
         trust = {k: v.get("trust") for k, v in sources.items()}
         match = soft_matcher(L, pool, trust)
         # Installed skills are compared on name and description alone, as are the public

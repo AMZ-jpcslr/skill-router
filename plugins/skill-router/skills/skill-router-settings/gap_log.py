@@ -34,7 +34,7 @@ NOTICE_EVERY = 7 * 86400
 OWN = {"skill-suggest", "skill-router-settings"}
 TERM = re.compile(r"[a-z][a-z0-9+#.-]{2,}|[ァ-ヿー]{3,}|[㐀-鿿]{2,6}")
 SKILL_PATH = re.compile(r"[/\\]([a-z0-9][a-z0-9-]{0,79})[/\\]+SKILL\.md\b", re.I)
-INVOKED = re.compile(r"(?:^|(?<=\s))[/$](?:[a-z0-9-]+:)?([a-z0-9][a-z0-9-]{1,79})(?![a-z0-9-])", re.I)
+INVOKED = re.compile(r"(?:^|(?<=\s))[/$](?:[a-z0-9-]+:)?([a-z0-9][a-z0-9-]{0,79})(?![a-z0-9_:/\\-]|\.\S)", re.I)
 STOP_WORDS = {"the", "and", "this", "that", "with", "for", "please", "してください", "ください", "お願い"}
 
 

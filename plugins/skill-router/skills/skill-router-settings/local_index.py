@@ -23,8 +23,10 @@ MAX_SKILLS=12_000
 MAX_DIRS=20_000
 NAME=re.compile(r"[a-z0-9][a-z0-9-]{0,79}\Z")
 DEFAULT=(HOME/".agents/skills", HOME/".codex/skills", HOME/".claude/skills")
-# 2: descriptions folded onto indented lines are read whole.
-FORMAT=2
+# Re-read metadata, including old entries skipped by the frontmatter reader.
+FORMAT=3
+READABLE_FORMATS=(1,2,FORMAT)
+DESCRIPTION_LIMIT=640
 OPEN=runpy.run_path(str(Path(__file__).with_name("open_routing.py")))
 # Cached features are valid only for the exact routing code that produced them.
 FEATURE_KEY=hashlib.sha256(Path(__file__).with_name("open_routing.py").read_bytes()).hexdigest()[:16]
@@ -108,7 +110,7 @@ def safe_root(path):
 
 def metadata(path):
     with path.open("rb") as f:
-        if f.readline(32).rstrip(b"\r\n").removeprefix(b"\xef\xbb\xbf")!=b"---": return None
+        if f.readline(32).rstrip(b" \t\r\n").removeprefix(b"\xef\xbb\xbf")!=b"---": return None
         budget=8192
         fields={}
         block=plain=None
@@ -117,7 +119,8 @@ def metadata(path):
             line=f.readline(budget)
             if not line: return None
             budget-=len(line)
-            if line.rstrip(b"\r\n")==b"---": break
+            if line.rstrip(b" \t\r\n")==b"---": break
+            if not line.strip(): continue
             if block is not None and (line.startswith((b" ",b"\t")) or not line.strip()):
                 chunks.append(line.decode("utf8").strip())
                 continue
@@ -130,7 +133,7 @@ def metadata(path):
             if sep and key in (b"name",b"description"):
                 if key in fields:return None
                 field=value.decode("utf-8").strip()
-                if key==b"description" and re.fullmatch(r"[|>][+-]?[1-9]?",field):
+                if key==b"description" and re.fullmatch(r"[|>](?:[+-][1-9]?|[1-9][+-]?)?(?:\s+#.*)?",field):
                     block=key
                     fields[key]=""
                 else:
@@ -142,7 +145,7 @@ def metadata(path):
     d=fields.get(b"description","").strip("'\\\"") or " ".join(x for x in chunks if x)
     if not NAME.fullmatch(n) or not d:
         return None
-    return n,d[:640]
+    return n,d[:DESCRIPTION_LIMIT]
 
 def scan(roots_to_scan,idx,changed=None):
     """Rebuild the index. With `changed` ({root: names of its folders that changed}), only those
@@ -154,6 +157,7 @@ def scan(roots_to_scan,idx,changed=None):
     stats={"reused":0,"read":0,"skipped":0,"removed":0,"truncated":False}
     scanned=[]
     dirs=0
+    codex_root=safe_root(HOME/".codex/skills")
     for root in dict.fromkeys(p for p in map(safe_root,roots_to_scan) if p is not None):
         scanned.append(str(root))
         only=None if changed is None else changed.get(str(root))
@@ -195,7 +199,7 @@ def scan(roots_to_scan,idx,changed=None):
             try:
                 stack.extend((x,depth+1) for x in sorted(base.iterdir(),reverse=True)
                              if (only is None or depth or x.name in only)
-                             and (not x.name.startswith(".") or (depth==0 and x.name==".system" and root==HOME/".codex/skills"))
+                             and (not x.name.startswith(".") or (depth==0 and x.name==".system" and root==codex_root))
                              and x.name not in ("node_modules","__pycache__","references","assets","scripts")
                              and plain(x,stat.S_ISDIR))
             except OSError:
@@ -291,7 +295,9 @@ def rank(prompt,records,guide_names,explanations=None,prepared=None):
     soft=[x for x in fixed if x[0] in general]
     opened=OPEN["rank_open"](parts,records,known if not soft else (lambda part:capabilities(part,[])[0]),
                              explanations=explanations,prepared=prepared,prompt=prompt)
-    if soft and opened:
+    # When another fixed task is present, keep the subject and guide stages so
+    # the shortlist filter below only drops the genuinely loose matches.
+    if soft and opened and len(soft)==len(fixed):
         fixed=[x for x in fixed if x not in soft]
         opened=[("open-shortlist",r) for _,r in opened]+[("open-shortlist",r) for _,r in soft]
     results=fixed+opened
@@ -307,11 +313,11 @@ EDIT_OPS=frozenset({"edit","proofread","translate","ai-writing"})
 def one_per_name(records):
     """The same skill installed in two places (~/.codex/skills and ~/.claude/skills) is one
     candidate, not a tie that hides both. Prefer the copy Claude Code loads itself."""
-    native=(HOME/".claude"/"skills").as_posix().casefold().rstrip("/")+"/"
+    native=(HOME/".claude"/"skills").resolve()
     best={}
     for row in records:
         key=row["name"]
-        here=row["path"].replace("\\","/").casefold().startswith(native)
+        here=Path(row["path"]).is_relative_to(native)
         if key not in best or (here and not best[key][0]):
             best[key]=(here,row)
     keep={id(r) for _,r in best.values()}
@@ -363,7 +369,7 @@ def prepared_features(records,path=None,save=True):
     if not isinstance(obj,dict) or obj.get("key")!=FEATURE_KEY:obj={}
     cache=obj.get("records",{})
     # A row is current while its SKILL.md and its keywords are unchanged.
-    sigs={r["path"]:[r.get("stamp"),zlib.crc32("\n".join(r.get("keywords") or ()).encode("utf-8"))] for r in records}
+    sigs={r["path"]:[r.get("stamp"),zlib.crc32("\n".join([r["description"],*(r.get("keywords") or ())]).encode("utf-8"))] for r in records}
     order=[r["path"] for r in records]
     try:
         if (obj.get("order")==order and all(cache[p][0]==sigs[p] for p in order)
@@ -457,10 +463,21 @@ def snippet(text, request, limit=180):
 # Indexed SKILL.md files found edited while routing; the hook rereads them (auto_index.py).
 STALE=[]
 
+def indexed_path(row,allowed):
+    p=Path(row["path"])
+    if not NAME.fullmatch(row["name"]) or any(ord(c)<32 for c in str(p)) or p.name!="SKILL.md":
+        return None
+    if not p.is_absolute() or not any(p.is_relative_to(root) for root in allowed) or not plain(p,stat.S_ISREG):
+        return None
+    try:
+        return p if p.resolve(strict=True)==p else None
+    except (OSError,ValueError,RuntimeError):
+        return None
+
 def active_refs(prompt,guide_names,index=INDEX):
     obj=read_json(index,{})
     # An index from the previous format still routes until the next refresh rereads it.
-    if not isinstance(obj,dict) or obj.get("version") not in (1,FORMAT):return []
+    if not isinstance(obj,dict) or obj.get("version") not in READABLE_FORMATS:return []
     out=[]
     allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
     explanations={}
@@ -471,15 +488,11 @@ def active_refs(prompt,guide_names,index=INDEX):
     editing=bool(asked&EDIT_OPS or JP_EDIT.search(request)) and "create" not in asked
     records,prepared=catalog(obj,index)
     for stage,row in rank(prompt,records,guide_names,explanations,prepared):
-        p=Path(row["path"])
-        if not NAME.fullmatch(row["name"]) or any(ord(c)<32 for c in str(p)) or p.name!="SKILL.md":continue
-        if not p.is_absolute() or not any(p.is_relative_to(root) for root in allowed):continue
-        if not plain(p,stat.S_ISREG):continue
+        p=indexed_path(row,allowed)
+        if p is None:continue
         try:
-            resolved=p.resolve(strict=True)
             now=p.stat()
         except (OSError,RuntimeError):continue
-        if p!=resolved or not any(resolved.is_relative_to(root) for root in allowed):continue
         if row["stamp"]!=[now.st_mtime_ns,now.st_size,now.st_ino]:
             # Edited since it was indexed: not offered on old metadata, and reread right after.
             STALE.append(row["path"])
@@ -495,7 +508,7 @@ def active_refs(prompt,guide_names,index=INDEX):
 def scored(task,index=INDEX):
     """[(score,row)] of every installed skill sharing evidence with the task, best first."""
     obj=read_json(index,{})
-    if not isinstance(obj,dict) or obj.get("version") not in (1,FORMAT):return []
+    if not isinstance(obj,dict) or obj.get("version") not in READABLE_FORMATS:return []
     records,prepared=catalog(obj,index)
     text=OPEN["normalize"](task)[:400]
     counts=prepared.counts or OPEN["catalog_counts"](prepared[r["path"]] for r in records)
@@ -534,9 +547,9 @@ def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180):
     allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
     out=[]
     for sc,row in pool:
-        p=Path(row["path"])
         if sc<pool[0][0]*ratio or sc<min_score or len(out)==limit:break
-        if p.name!="SKILL.md" or not any(p.is_relative_to(r) for r in allowed) or not plain(p,stat.S_ISREG):continue
+        p=indexed_path(row,allowed)
+        if p is None:continue
         out.append({"name":row["name"],"path":p.as_posix(),"summary":snippet(row.get("description",""),task,summary_len),
                     **({"kind":row["kind"]} if row.get("kind") else {})})
     return out
@@ -598,7 +611,8 @@ def command(argv):
                 saved.append(root)
         else:
             if not arg.is_absolute():p.error("absolute root required")
-            saved=[x for x in saved if x!=arg]
+            root=arg.resolve(strict=False)
+            saved=[x for x in saved if x!=arg and x!=root]
         write_json(ROOTS,[str(x) for x in saved])
         result={"extra_roots":[str(x) for x in saved],"refresh_required":True}
     print(json.dumps(result,ensure_ascii=True))

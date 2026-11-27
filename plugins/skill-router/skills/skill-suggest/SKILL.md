@@ -39,7 +39,7 @@ description: Use only when the user asks which skills to add, how to set up thei
 - `without_japanese_words` と `action`: 日本語の語を持たないスキルの数。`action` があれば `router.py index refresh --keywords` を案内する。
 
 直し案の出し方（上位5件ほど）：
-1. 説明の直し案を、元の説明と同じ言語で1つずつ書く。最初の1文で「何をして何ができあがるか」を、`only_<名前>` や `specific_words` の語、またはそのSKILL.mdの本文から確かめた具体的な語で言う。次に「〜のときに使う」を書く。重なる組には「〜には <相手の名前> を使う」と使い分けを1文で添える。本文にない機能や用途は足さない。1024文字以内。
+1. 説明の直し案を、元の説明と同じ言語で1つずつ書く。最初の1文で「何をして何ができあがるか」を、`only_<名前>` や `specific_words` の語、またはそのSKILL.mdの本文から確かめた具体的な語で言う。次に「〜のときに使う」を書く。重なる組には「〜には <相手の名前> を使う」と使い分けを1文で添える。本文にない機能や用途は足さない。640文字以内。
 2. 案を見せる前に、1件ずつ `router.py doctor --skill <名前> --try-description "<案>"` で確かめる。`before` と `after` の `issues` と `overlaps` を比べ、良くなった案だけを、何が変わったか（例：重なりの `closeness` 1.14→0.62）と一緒に見せる。良くならなければ案を直して確かめ直す。
 3. `similarity` が1に近い組は中身が同じ可能性が高い。どちらかを残す選択肢として伝えるだけにする。
 4. SKILL.md は書き換えない。利用者が特定の案の反映をはっきり頼んだときだけ、そのファイルの `description` だけを書き換え、`router.py index refresh` を実行する。削除や移動はしない。

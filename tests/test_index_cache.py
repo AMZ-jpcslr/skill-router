@@ -5,6 +5,7 @@ from pathlib import Path
 import runpy
 import tempfile
 import unittest
+from unittest.mock import patch
 
 CORE = Path(__file__).resolve().parents[1] / "plugins/skill-router/skills/skill-router-settings"
 
@@ -107,8 +108,9 @@ class IndexCache(unittest.TestCase):
         def broken(text):
             raise RuntimeError("no model")
         # A first batch that fails stops the run loudly instead of failing every batch.
-        with self.assertRaises(self.K["Unavailable"]):
+        with self.assertRaises(RuntimeError) as failure:
             self.K["update"](ROWS[:3], {}, runner=broken, workers=1)
+        self.assertNotIsInstance(failure.exception, self.K["Unavailable"])
         calls = []
         def flaky(text):
             calls.append(text)
@@ -123,6 +125,18 @@ class IndexCache(unittest.TestCase):
         a = row("dup-skill", "Docker containerization expert: create Dockerfiles.", 500)
         b = dict(a, path="/other/dup-skill/SKILL.md", stamp=[501, 1, 501])
         self.assertEqual(len(self.L["one_per_name"]([a, b] + ROWS)), len(ROWS) + 1)
+
+    def test_malformed_model_responses_are_transient(self):
+        for response in ([1], "invalid", {"skills": None}):
+            with self.subTest(response=response), self.assertRaises(RuntimeError) as failure:
+                self.K["update"](ROWS[:1], {}, runner=lambda _: response)
+            self.assertNotIsInstance(failure.exception, self.K["Unavailable"])
+        from subprocess import CompletedProcess
+        runner = self.K["claude_runner"]
+        with patch.dict(runner.__globals__, find_claude=lambda: "claude"), patch("subprocess.run", return_value=CompletedProcess([], 0, '{"result":null}')):
+            with self.assertRaises(ValueError):
+                runner("prompt")
+
 
     def test_japanese_words_without_a_dictionary(self):
         O = self.L["OPEN"]

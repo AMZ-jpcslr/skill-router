@@ -91,6 +91,8 @@ def claude_runner(prompt):
     data = out.get("structured_output") if isinstance(out, dict) else None
     if data is None:
         text = out.get("result", "") if isinstance(out, dict) else ""
+        if not isinstance(text, str):
+            raise ValueError("keyword response has no text result")
         data = json.loads(text[text.find("{"):text.rfind("}") + 1])
     return data
 
@@ -127,8 +129,12 @@ def batch_prompt(rows):
 
 def ask(rows, runner):
     data = runner(batch_prompt(rows))
+    if not isinstance(data, dict) or not isinstance(data.get("skills"), list):
+        raise ValueError("keyword response must contain a skills list")
     got = {}
-    for item in (data or {}).get("skills", []):
+    for item in data["skills"]:
+        if not isinstance(item, dict):
+            continue
         try:
             i = int(item["id"])
         except (KeyError, TypeError, ValueError):
@@ -159,7 +165,7 @@ def update(records, saved, runner=None, limit=None, workers=4, batch=BATCH):
     if chunks:
         first = _safe(ask, chunks[0], runner)
         if first is None:
-            raise Unavailable("the first keyword batch failed; nothing was written")
+            raise RuntimeError("the first keyword batch failed; nothing was written")
         chunks_done = [(chunks[0], first)]
         chunks = chunks[1:]
     else:

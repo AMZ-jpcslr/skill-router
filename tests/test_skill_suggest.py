@@ -115,6 +115,43 @@ class SkillSuggest(unittest.TestCase):
         self.assertEqual(out["note"], "no_history")
         self.assertEqual(out["public"], [])
 
+    def test_report_uses_installed_keywords_only(self):
+        self.index(skill(self.home, ".agents/skills", "remotion", "Create videos in React."))
+        self.claude_history([(d, "動画を作って") for d in range(5)])
+        out = self.report(include_public=False)
+        missing = next(s for s in out["settings"] if s["kind"] == "keywords_missing")
+        self.assertEqual(missing["skills_with_keywords"], 0)
+
+    def test_log_timestamps_and_non_object_lines(self):
+        from datetime import timezone
+        module = runpy.run_path(str(SUGGEST))
+        for fraction, micros in [("12", 120000), ("1234", 123400), ("123456789", 123456)]:
+            parsed = module["when"](f"2026-11-26T02:23:51.{fraction}Z")
+            self.assertEqual((parsed.microsecond, parsed.tzinfo), (micros, timezone.utc))
+        since = module["when"]("2026-11-25T00:00:00")
+        self.assertEqual(since.tzinfo, timezone.utc)
+        path = self.home / ".claude/projects/project/test.jsonl"
+        path.parent.mkdir(parents=True)
+        path.write_text('["SKILL.md"]\n' + json.dumps({"timestamp": "2026-11-26T01:00:00",
+                        "type": "tool_use", "name": "Skill", "input": {"skill": "example"}}))
+        os.utime(path, (since.timestamp()+86400,)*2)
+        self.assertIn("example", module["read_skill_use"](since, [10000]))
+
+    def test_path_and_unknown_variables_survive_invocation_removal(self):
+        from unittest.mock import patch
+        self.index(skill(self.home, ".agents/skills", "team-status", "Write team status updates."),
+                   skill(self.home, ".agents/skills", "src", "Work on source code."))
+        prompt = "$team-status Fix /src/app.py using $UNKNOWN."
+        self.claude_history([(0, prompt)])
+        analyse = runpy.run_path(str(SUGGEST))["analyse"]
+        L, R = analyse.__globals__["engine"]()
+        L["rank"] = lambda *args: []
+        from unittest.mock import Mock
+        clauses = Mock(wraps=L["OPEN"]["work_clauses"])
+        with patch.dict(analyse.__globals__, engine=lambda: (L, R)), patch.dict(L["OPEN"], work_clauses=clauses):
+            analyse(include_public=False)
+        self.assertEqual(clauses.call_args_list[0].args[0].strip(), "Fix /src/app.py using $UNKNOWN.")
+
     def test_find_names_installed_then_public(self):
         p = skill(self.home, ".agents/skills", "terraform-modules", "Write and refactor Terraform modules for AWS infrastructure.")
         self.index(p)
@@ -176,6 +213,22 @@ class SkillSuggest(unittest.TestCase):
             self.assertLessEqual(set(row), allowed)
             self.assertIn(row["source"], ids)
             self.assertLessEqual(len(row["description"]), 300)
+
+    def test_build_catalog_keywords_are_publishable_and_reused(self):
+        from unittest.mock import patch
+        builder = runpy.run_path(str(PLUGIN.parents[1] / "tools/build_catalog.py"))
+        base = {"url": "https://example.org/a", "name": "example", "description": "Create reports."}
+        fresh = dict(base)
+        def generate(rows, saved):
+            self.assertEqual([r["path"] for r in rows], [base["url"]])
+            return {base["url"]: {"keywords": ["reports"], "requests": ["Write this"], "asked": "schema"}}, {}
+        with patch("runpy.run_path", return_value={"update": generate}):
+            builder["add_keywords"]([fresh], [])
+        self.assertEqual(fresh, dict(base, keywords=["reports"]))
+        copy = dict(base)
+        with patch("runpy.run_path", return_value={}):
+            builder["add_keywords"]([copy], [fresh])
+        self.assertEqual(copy, fresh)
 
 
 if __name__ == "__main__":

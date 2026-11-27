@@ -158,6 +158,67 @@ class AutoIndex(unittest.TestCase):
     def test_keywords_are_not_started_without_an_opt_in(self):
         self.assertNotIn("keywords", self.A["check"](self.L))
 
+    def test_remove_extra_root_by_its_original_spelling_after_removal(self):
+        from contextlib import redirect_stdout
+        from io import StringIO
+        extra = self.home / "extra"
+        extra.mkdir()
+        spelling = self.skills / ".." / ".." / "extra"
+        with redirect_stdout(StringIO()):
+            self.L["command"](["add-root", str(spelling)])
+            self.assertEqual(self.L["roots"](), [extra.resolve()])
+            extra.rmdir()
+            self.L["command"](["remove-root", str(spelling)])
+            self.assertEqual(self.L["roots"](), [])
+
+    def test_nested_native_and_system_skills_with_noncanonical_home(self):
+        spelled = self.skills / ".." / ".."
+        native = self.home / ".claude/skills"
+        nested = write_skill(native / "pack", "my-skill", "Use a nested native skill.")
+        external = write_skill(self.skills, "my-skill", "Another copy of this skill.")
+        write_skill(self.home / ".codex/skills/.system", "system-skill", "Use a system skill.")
+        os.environ.update(HOME=str(spelled), USERPROFILE=str(spelled))
+        L = runpy.run_path(str(CORE / "local_index.py"))
+        L["scan"](L["DEFAULT"], L["INDEX"])
+        rows = L["read_json"](L["INDEX"], {})["records"]
+        self.assertIn("system-skill", {r["name"] for r in rows})
+        copies = [{"name": "my-skill", "path": str(p.resolve())} for p in (external, nested)]
+        self.assertEqual(L["one_per_name"](copies), [copies[1]])
+        R = runpy.run_path(str(CORE / "router.py"))
+        self.assertTrue(R["claude_native"](copies[1], (spelled / ".claude/skills").resolve()))
+
+    def test_find_checks_indexed_names_and_canonical_paths(self):
+        from unittest.mock import patch
+        path = self.skills / "filler-00/SKILL.md"
+        good = {"name": "filler-00", "path": str(path.resolve()), "description": "Reporting"}
+        candidates = [dict(good, name="bad name"),
+                      dict(good, path=str(path.parent / ".." / path.parent.name / path.name)), good]
+        find = self.L["find"]
+        with patch.dict(find.__globals__, scored=lambda *args: [(1, r) for r in candidates]):
+            self.assertEqual([r["name"] for r in find("reporting")], ["filler-00"])
+
+    def test_changed_target_can_start_immediately_after_success(self):
+        from unittest.mock import patch
+        self.L["write_json"](self.L["KEYWORDS"], {"version": 1, "records": {}})
+        check = self.A["check"]
+        with patch.dict(check.__globals__, spawn_keywords=lambda want: "started"):
+            self.assertEqual(check(self.L, now=10000)["keywords"], "started")
+            state, worker = self.A["_paths"](self.L)
+            attempted = self.L["read_json"](state, {})
+            target = [attempted["changed"], attempted["kw_code"]]
+            self.L["write_json"](worker, {"done_for": target})
+            write_skill(self.skills, "new-tool", "Prepare reports.")
+            self.assertEqual(check(self.L, now=10600)["keywords"], "started")
+            write_skill(self.skills, "another-tool", "Create receipts.")
+            self.assertNotIn("keywords", check(self.L, now=10601))
+            self.L["write_json"](worker, {"done_for": None, "unavailable": False})
+            self.assertNotIn("keywords", check(self.L, now=14199))
+            self.assertEqual(check(self.L, now=14200)["keywords"], "started")
+            self.L["write_json"](worker, {"done_for": None, "unavailable": True})
+            self.assertNotIn("keywords", check(self.L, now=14200+3600))
+            self.assertEqual(check(self.L, now=14200+86400)["keywords"], "started")
+
+
     def test_keywords_run_in_the_background_for_new_skills(self):
         # Once the user has made keywords, a new skill gets them without being asked again.
         fake = Path(self.tmp.name) / "fake_keywords.py"

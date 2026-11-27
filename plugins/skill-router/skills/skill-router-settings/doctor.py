@@ -103,7 +103,7 @@ def issues_of(cat, i):
         out.append("too_short")
     if cat.size >= 30 and len(distinct) < MIN_DISTINCT:
         out.append("few_specific_words")
-    if cat.size >= 30 and nw and all(cat.idf(t) < 3.0 for t in nw):
+    if cat.size >= 30 and all(cat.idf(t) < 3.0 for t in nw):
         out.append("generic_name")
     if not WHEN.search(d):
         out.append("no_when_to_use")
@@ -122,9 +122,7 @@ def diagnose(cat, i, partners=()):
     wins = 0
     for n, text in enumerate(probes):
         own, others = cat.probe(text, i, partners)
-        if others and own > 0 and others[0][0] < own:
-            wins += n > 0
-        elif n > 0 and not others:
+        if n > 0 and own > 0 and (not others or others[0][0] < own):
             wins += 1
         for sc, j in others:
             if own <= 0 or sc < CLOSE * own:
@@ -236,7 +234,7 @@ def run(cat, limit=10, only=None):
 
 def records_of(L, index=None):
     obj = L["read_json"](index or L["INDEX"], {})
-    if not isinstance(obj, dict) or obj.get("version") not in (1, L["FORMAT"]):
+    if not isinstance(obj, dict) or obj.get("version") not in L["READABLE_FORMATS"]:
         return None
     return L["with_keywords"](L["one_per_name"](obj["records"]))
 
@@ -249,7 +247,7 @@ def compare(L, records, name, description):
     prepared = L["prepared_features"](records)
     before = run(Catalog(L, records, prepared), only=name)
     changed = list(records)
-    row = changed[by_name[name]] = dict(records[by_name[name]], description=" ".join(description.split())[:1024])
+    row = changed[by_name[name]] = dict(records[by_name[name]], description=" ".join(description.split())[:L["DESCRIPTION_LIMIT"]])
     trial = {r["path"]: prepared[r["path"]] for r in records}
     trial[row["path"]] = L["OPEN"]["prepare"](row)
     after = run(Catalog(L, changed, trial), only=name)
