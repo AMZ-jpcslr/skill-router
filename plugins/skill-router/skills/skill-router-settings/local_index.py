@@ -313,15 +313,20 @@ EDIT_OPS=frozenset({"edit","proofread","translate","ai-writing"})
 def one_per_name(records):
     """The same skill installed in two places (~/.codex/skills and ~/.claude/skills) is one
     candidate, not a tie that hides both. Prefer the copy Claude Code loads itself."""
-    native=(HOME/".claude"/"skills").resolve()
+    native=None
     best={}
     for row in records:
         key=row["name"]
-        here=Path(row["path"]).is_relative_to(native)
-        if key not in best or (here and not best[key][0]):
-            best[key]=(here,row)
-    keep={id(r) for _,r in best.values()}
-    return [r for r in records if id(r) in keep]
+        previous=best.get(key)
+        if previous is None:
+            best[key]=row
+            continue
+        # Only a name collision needs a native-path check. Keep the first native copy.
+        if native is None:
+            native=(HOME/".claude"/"skills").resolve()
+        if Path(row["path"]).is_relative_to(native) and not Path(previous["path"]).is_relative_to(native):
+            best[key]=row
+    return [r for r in records if best[r["name"]] is r]
 
 def with_keywords(records,path=None):
     """Attach index-time keywords to rows whose SKILL.md has not changed since."""
@@ -531,19 +536,22 @@ def contested(task,index=INDEX,near=CLOSE):
     """True when two differently named skills score within `near` of each other for the task, so
     the words of the request alone cannot tell which fits; the agent's own wording of the main
     work, and a look at the descriptions side by side, can."""
-    pool=scored(task,index)
+    return close_scores(scored(task,index),near)
+
+def close_scores(pool,near=CLOSE):
     if len(pool)<2:return False
     best=pool[0]
     rival=next((sc for sc,row in pool[1:] if row["name"]!=best[1]["name"]),0)
     return rival>=best[0]*near
 
-def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180):
+def find(task,limit=5,index=INDEX,min_score=0,ratio=.5,summary_len=180,*,pool=None):
     """Installed skills for a task the agent wrote itself, as a line ("write an apology email
     to a client"). The agent's wording reaches skills the user's own words missed; it is
     scored like a request, and the closest few are listed for the agent to choose among.
     With ratio 0 and a larger limit it is the hook's wide shortlist: every skill sharing evidence
     with the request, best first, for the agent to choose among."""
-    pool=scored(task,index)
+    if pool is None:
+        pool=scored(task,index)
     allowed=[p for p in map(safe_root,(*DEFAULT,*roots())) if p is not None]
     out=[]
     for sc,row in pool:

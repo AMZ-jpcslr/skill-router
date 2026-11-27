@@ -199,9 +199,8 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         if not work or not has_index():
             return {}
         claude=os.environ.get("SKILL_ROUTER_HOST") == "claude-code"
-        groups=shortlist(idx,prompt,set(),claude)
+        groups,unsure=related_skills(idx,prompt,set(),claude)
         remember(e.get("session_id"),[g["dir"]+"/"+r["name"]+"/SKILL.md" for g in groups for r in g["skills"]],new_turn=True)
-        unsure=is_contested(idx,prompt)
         if groups:
             hint=(HEADER+(CONTESTED_HINT() if unsure else "")
                   +shortlist_text(groups,False,not claude)+("" if unsure else "\n"+FIND_HINT(after="list")))
@@ -268,11 +267,11 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         # Codex has no hook on the agent's own plan, so a later step of a longer job is left to the agent.
         txt+="\n"+STEP_HINT()
 
-    groups=shortlist(idx,prompt,offered,claude) if has_index() else []
+    groups,unsure=related_skills(idx,prompt,offered,claude) if has_index() else ([],False)
     if groups:
         remember(e.get("session_id"),[g["dir"]+"/"+r["name"]+"/SKILL.md" for g in groups for r in g["skills"]])
         txt+=shortlist_text(groups,bool(offered),not claude)
-    if is_contested(idx,prompt):
+    if unsure:
         # First, so it is read before the candidates it is about.
         txt=txt.replace(HEADER,HEADER+CONTESTED_HINT(),1)
     decision_protocol = (
@@ -427,25 +426,20 @@ SHORTLIST=25
 # Long enough for the opening and, when the description goes on, the part naming the request's words.
 SHORT_SUMMARY=150
 
-def is_contested(idx,prompt):
-    """The closest skills for the request's main work are nearly tied (local_index.contested)."""
-    work="。".join(idx["OPEN"]["work_clauses"](prompt))
-    if not work or not has_index():
-        return False
-    try:
-        return bool(idx["contested"](work))
-    except (OSError,ValueError,TypeError,KeyError,RuntimeError):
-        return False
-
-def shortlist(idx,prompt,exclude,claude):
-    """[{dir, skills:[{name, summary[, kind]}]}] for the closest skills not already offered."""
+def related_skills(idx,prompt,exclude,claude):
+    """Use the same ranking for the shortlist and for the near-tie hint on this prompt."""
     work="。".join(idx["OPEN"]["work_clauses"](prompt))
     if not work:
-        return []
+        return [],False
     try:
-        found=idx["find"](work,SHORTLIST+len(exclude),ratio=0,summary_len=SHORT_SUMMARY)
+        pool=idx["scored"](work)
+        unsure=idx["close_scores"](pool)
     except (OSError,ValueError,TypeError,KeyError,RuntimeError):
-        return []
+        return [],False
+    try:
+        found=idx["find"](work,SHORTLIST+len(exclude),ratio=0,summary_len=SHORT_SUMMARY,pool=pool)
+    except (OSError,ValueError,TypeError,KeyError,RuntimeError):
+        return [],unsure
     native=(Path.home()/".claude"/"skills").resolve()
     groups={}
     n=0
@@ -461,7 +455,7 @@ def shortlist(idx,prompt,exclude,claude):
         n+=1
         if n==SHORTLIST:
             break
-    return [{"dir":d,"skills":rows} for d,rows in groups.items()]
+    return [{"dir":d,"skills":rows} for d,rows in groups.items()],unsure
 
 def shortlist_text(groups,after,ascii_only):
     rows=[r for g in groups for r in g["skills"]]
