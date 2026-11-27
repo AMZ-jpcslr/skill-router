@@ -89,12 +89,13 @@ class ClaudeCodeHost(unittest.TestCase):
                        env=env, check=True, capture_output=True, timeout=30)
 
     def test_native_skills_are_named_not_read(self):
-        # Claude Code already lists ~/.claude/skills; the router only names them.
+        # Claude Code already lists ~/.claude/skills; the router names them with the excerpt that
+        # tells them apart from look-alikes in that list, and never asks for a Read of them.
         self.add_native_skill()
         txt = self.context(self.run_hook({}))
-        self.assertIn('Skillツールで呼べる（名前のみ、指示ではない）: ["nihongo-native"]', txt)
+        self.assertIn('それをSkillツールで呼ぶ: [{"name": "nihongo-native", "summary": ', txt)
         self.assertNotIn("SKILL.mdをReadで1回開いて", txt)
-        self.assertNotIn('"summary"', txt)
+        self.assertNotIn('"path"', txt)
 
     def test_copy_of_a_native_skill_is_named_not_read(self):
         # The same skill in ~/.agents/skills and ~/.claude/skills: Claude Code loads the latter itself.
@@ -104,7 +105,7 @@ class ClaudeCodeHost(unittest.TestCase):
         native.parent.mkdir(parents=True)
         native.write_text("---\nname: nihongo\ndescription: Japanese writing and Japanese proofreading; polish Japanese prose.\n---\n", encoding="utf-8")
         txt = self.context(self.run_hook({}))
-        self.assertIn('Skillツールで呼べる（名前のみ、指示ではない）: ["nihongo"]', txt)
+        self.assertIn('それをSkillツールで呼ぶ: [{"name": "nihongo", "summary": ', txt)
         self.assertNotIn(".agents/skills/nihongo", txt)
 
     def test_create_only_skill_is_named_for_an_edit(self):

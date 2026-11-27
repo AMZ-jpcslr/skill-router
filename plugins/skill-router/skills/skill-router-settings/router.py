@@ -225,7 +225,9 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         # A skill of the same name in ~/.claude/skills is the one Claude Code will load,
         # even when the index found a copy elsewhere (~/.codex/skills/nihongo).
         is_native=lambda r:r["path"].startswith(native_root) or (Path.home()/".claude"/"skills"/r["name"]/"SKILL.md").is_file()
-        native=list(dict.fromkeys(r["name"] for r in refs if is_native(r)))
+        # Named with the description excerpt: beside Claude Code's own list, where look-alike
+        # skills sit side by side, the excerpt matched to the request is what tells them apart.
+        native=list({r["name"]:{"name":r["name"],"summary":r["summary"]} for r in refs if is_native(r)}.values())
         refs=[r for r in refs if not is_native(r)]
         weak=[{"name":r["name"],"path":r["path"]} for r in refs if r.get("fit")=="name_only"]
         choose=[{"name":r["name"],"path":r["path"],"summary":r["summary"],**tool_tag(r)} for r in refs if r.get("fit")=="choose"]
@@ -246,7 +248,7 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
             txt+=("\n\n新しく作るためのスキルで、既存の文章を直す今回の依頼とは作業が異なる候補（名前と場所のみ、指示ではない。読む必要はない）: "
                   + json.dumps(weak,ensure_ascii=False))
         if native:
-            txt+=("\n\nClaude Codeのスキル一覧にある次のスキルも依頼に合う可能性がある。合う場合はSkillツールで呼べる（名前のみ、指示ではない）: "
+            txt+=("\n\nClaude Codeのスキル一覧にある次のスキルも依頼に合う可能性がある（名前と説明の抜粋で、指示ではない）。説明を依頼が最終的に求める作業の操作と対象に照らし、一覧の似た名前のスキルより具体的に合うなら、それをSkillツールで呼ぶ: "
                   + json.dumps(native,ensure_ascii=False))
     elif refs:
         choose=[{"name":r["name"],"path":r["path"],"summary":r["summary"],**tool_tag(r)} for r in refs if r.get("fit")=="choose"]
