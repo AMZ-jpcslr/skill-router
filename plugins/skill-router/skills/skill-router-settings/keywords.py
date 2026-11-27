@@ -17,6 +17,10 @@ MAX_REQUESTS = 8
 # service, app or file format; "writing" for one whose result is prose for people to read; "task"
 # otherwise. The router uses it for every request alike, so no list of services is kept here.
 KINDS = ("task", "tool", "writing")
+# The indexer runs detached, with no console. On Windows a console program it starts would then
+# get a console window of its own, one per running batch; CREATE_NO_WINDOW gives it a hidden one,
+# which the program's own children (hooks, shells) share.
+NO_WINDOW = {"creationflags": 0x08000000} if os.name == "nt" else {}
 # Saved entries made under another `ASKED` are written again once.
 ASKED = f"{MAX_REQUESTS}+kind"
 SCHEMA = {
@@ -84,7 +88,7 @@ def claude_runner(prompt):
            "--tools", "", "--strict-mcp-config", "--no-session-persistence"]
     env = dict(os.environ, SKILL_ROUTER_CHILD="1")
     done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
-                          timeout=300, env=env)
+                          timeout=300, env=env, **NO_WINDOW)
     if done.returncode:
         raise RuntimeError(f"claude exited {done.returncode}")
     out = json.loads(done.stdout)
@@ -101,7 +105,8 @@ def command_runner(cmd):
     """SKILL_ROUTER_KEYWORD_CMD: a command that reads the prompt on stdin and prints the JSON."""
     def run(prompt):
         done = subprocess.run(cmd, input=prompt, capture_output=True, text=True, encoding="utf-8",
-                              timeout=300, shell=True, env=dict(os.environ, SKILL_ROUTER_CHILD="1"))
+                              timeout=300, shell=True, env=dict(os.environ, SKILL_ROUTER_CHILD="1"),
+                              **NO_WINDOW)
         if done.returncode:
             raise RuntimeError(f"keyword command exited {done.returncode}")
         return json.loads(done.stdout)
