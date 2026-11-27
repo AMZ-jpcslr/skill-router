@@ -10,8 +10,8 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "plugins/skill-router"
-CORE = PLUGIN / "skills/skill-router-settings"
+PLUGIN = ROOT / "plugins/skill-omakase"
+CORE = PLUGIN / "skills/skill-omakase-settings"
 
 
 def write_skill(base, name, description):
@@ -27,9 +27,9 @@ class AutoIndex(unittest.TestCase):
         self.home = Path(self.tmp.name) / "home"
         self.skills = self.home / ".agents/skills"
         self.skills.mkdir(parents=True)
-        self.state = self.home / ".skill-router-beta"
-        self.saved = {k: os.environ.get(k) for k in ("HOME", "USERPROFILE", "SKILL_ROUTER_STATE_DIR")}
-        os.environ.update(HOME=str(self.home), USERPROFILE=str(self.home), SKILL_ROUTER_STATE_DIR=str(self.state))
+        self.state = self.home / ".skill-omakase"
+        self.saved = {k: os.environ.get(k) for k in ("HOME", "USERPROFILE", "SKILL_OMAKASE_STATE_DIR")}
+        os.environ.update(HOME=str(self.home), USERPROFILE=str(self.home), SKILL_OMAKASE_STATE_DIR=str(self.state))
         for i in range(30):
             write_skill(self.skills, f"filler-{i:02d}", f"Work with tool {i}: setup and reporting.")
         self.L = runpy.run_path(str(CORE / "local_index.py"))
@@ -230,7 +230,7 @@ class AutoIndex(unittest.TestCase):
                         "ids=[int(x) for x in re.findall(r'\"id\": (\\d+)',sys.stdin.read())]\n"
                         "print(json.dumps({'skills':[{'id':i,'keywords':['お詫び'],'requests':['お詫びメールを書いて']} for i in ids]}))\n",
                         encoding="utf-8")
-        os.environ["SKILL_ROUTER_KEYWORD_CMD"] = f'"{sys.executable}" -I "{fake}"'
+        os.environ["SKILL_OMAKASE_KEYWORD_CMD"] = f'"{sys.executable}" -I "{fake}"'
         try:
             self.L["write_json"](self.L["KEYWORDS"], {"version": 1, "records": {}})
             self.assertEqual(self.A["check"](self.L).get("keywords"), "started")
@@ -245,7 +245,7 @@ class AutoIndex(unittest.TestCase):
             # Caught up: nothing is started again until a skill changes.
             self.assertNotIn("keywords", self.A["check"](self.L, now=time.time() + 2 * 3600))
         finally:
-            os.environ.pop("SKILL_ROUTER_KEYWORD_CMD", None)
+            os.environ.pop("SKILL_OMAKASE_KEYWORD_CMD", None)
 
 
 class HookBuildsIndex(unittest.TestCase):
@@ -253,11 +253,11 @@ class HookBuildsIndex(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             home, project = Path(tmp) / "home", Path(tmp) / "project"
             (project / ".git").mkdir(parents=True)
-            state = home / ".skill-router-beta"
+            state = home / ".skill-omakase"
             state.mkdir(parents=True)
             (state / "settings.json").write_text(json.dumps(
                 {"all_projects": False, "folderless": False, "projects": [str(project.resolve())]}), encoding="utf-8")
-            env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "SKILL_ROUTER_HOST", "SKILL_ROUTER_STATE_DIR")}
+            env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "SKILL_OMAKASE_HOST", "SKILL_OMAKASE_STATE_DIR")}
             env.update(HOME=str(home), USERPROFILE=str(home), CLAUDE_PLUGIN_ROOT=str(PLUGIN))
 
             def hook():

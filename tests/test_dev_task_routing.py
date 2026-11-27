@@ -3,7 +3,7 @@ import runpy
 import unittest
 from pathlib import Path
 
-CORE = Path(__file__).resolve().parents[1] / "plugins/skill-router/skills/skill-router-settings"
+CORE = Path(__file__).resolve().parents[1] / "plugins/skill-omakase/skills/skill-omakase-settings"
 INDEX = runpy.run_path(str(CORE / "local_index.py"))
 OPEN = INDEX["OPEN"]
 

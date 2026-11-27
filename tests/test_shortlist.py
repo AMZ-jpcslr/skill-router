@@ -8,8 +8,8 @@ import sys
 import tempfile
 import unittest
 
-PLUGIN = Path(__file__).resolve().parents[1] / "plugins/skill-router"
-ROUTER = PLUGIN / "skills/skill-router-settings/router.py"
+PLUGIN = Path(__file__).resolve().parents[1] / "plugins/skill-omakase"
+ROUTER = PLUGIN / "skills/skill-omakase-settings/router.py"
 HEAD = "説明の語が依頼と近かった導入済みスキルの一覧"
 
 
@@ -20,8 +20,8 @@ class Shortlist(unittest.TestCase):
         self.project = self.home / "trial"
         self.project.mkdir()
         self.env = dict(os.environ, HOME=self.folder.name, USERPROFILE=self.folder.name,
-                        SKILL_ROUTER_HOST="claude-code")
-        self.env.pop("SKILL_ROUTER_STATE_DIR", None)
+                        SKILL_OMAKASE_HOST="claude-code")
+        self.env.pop("SKILL_OMAKASE_STATE_DIR", None)
         skills = {f"report-writer-{i}": f"Write weekly status reports for team {i}: summary, risks and next steps."
                   for i in range(40)}
         skills["slide-maker"] = "Create presentation slide decks from an outline."
@@ -82,7 +82,7 @@ class Shortlist(unittest.TestCase):
 
     def test_listed_skills_of_the_latest_request_are_recorded(self):
         context = self.context("Write the weekly status report for my team.", "s1")
-        files = list((self.home / ".skill-router-beta/sessions").glob("*.json")) or \
+        files = list((self.home / ".skill-omakase/sessions").glob("*.json")) or \
             [f for f in self.home.rglob("sessions/*.json")]
         state = json.loads(files[0].read_text(encoding="utf-8"))
         self.assertEqual(sorted(Path(p).parent.name for p in state["last_listed"]),
@@ -97,7 +97,7 @@ class Shortlist(unittest.TestCase):
 
 class Snippet(unittest.TestCase):
     def test_the_part_naming_the_request_is_kept(self):
-        L = runpy.run_path(str(PLUGIN / "skills/skill-router-settings/local_index.py"))
+        L = runpy.run_path(str(PLUGIN / "skills/skill-omakase-settings/local_index.py"))
         text = ("Use this skill any time a spreadsheet file is the primary input or output. This means any task "
                 "where the user wants to open, read, edit, or fix an existing .xlsx, .xlsm, .csv, or .tsv file.")
         self.assertIn(".csv", L["snippet"](text, "このCSVの異常値を調べて", 120))

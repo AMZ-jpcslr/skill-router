@@ -1,4 +1,4 @@
-"""Host-neutral launcher for the Skill Router UserPromptSubmit hook.
+"""Host-neutral launcher for the Skill Omakase UserPromptSubmit hook.
 
 Codex sets PLUGIN_ROOT (and CLAUDE_PLUGIN_ROOT for compatibility); Claude Code
 sets only CLAUDE_PLUGIN_ROOT. The host decides how the decision protocol is
@@ -10,8 +10,8 @@ import runpy
 import sys
 
 if not os.environ.get("PLUGIN_ROOT"):
-    os.environ.setdefault("SKILL_ROUTER_HOST", "claude-code")
+    os.environ.setdefault("SKILL_OMAKASE_HOST", "claude-code")
 root = Path(__file__).resolve().parent.parent
 # "stop" runs the end-of-turn record (Stop hook); anything else is the routing hook.
 sys.argv[1:] = ["stop"] if sys.argv[1:2] == ["stop"] else ["hook"]
-runpy.run_path(str(root / "skills" / "skill-router-settings" / "router.py"), run_name="__main__")
+runpy.run_path(str(root / "skills" / "skill-omakase-settings" / "router.py"), run_name="__main__")

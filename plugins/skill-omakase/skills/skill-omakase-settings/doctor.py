@@ -13,7 +13,7 @@ import re
 import runpy
 
 HERE = Path(__file__).resolve().parent
-OWN = {"skill-router-settings", "skill-suggest"}
+OWN = {"skill-omakase-settings", "skill-suggest", "skill-router-settings"}
 # A skill whose description another one matches this nearly is not told apart from it.
 CLOSE = .85
 # Candidates the router's full scorer looks at for each probe, after a cheap prefilter.

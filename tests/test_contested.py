@@ -7,8 +7,8 @@ import sys
 import tempfile
 import unittest
 
-PLUGIN = Path(__file__).resolve().parents[1] / "plugins/skill-router"
-ROUTER = PLUGIN / "skills/skill-router-settings/router.py"
+PLUGIN = Path(__file__).resolve().parents[1] / "plugins/skill-omakase"
+ROUTER = PLUGIN / "skills/skill-omakase-settings/router.py"
 MARK = "点差が小さく"
 
 
@@ -19,8 +19,8 @@ class Contested(unittest.TestCase):
         self.project = self.home / "trial"
         self.project.mkdir()
         self.env = dict(os.environ, HOME=self.folder.name, USERPROFILE=self.folder.name,
-                        SKILL_ROUTER_HOST="claude-code")
-        self.env.pop("SKILL_ROUTER_STATE_DIR", None)
+                        SKILL_OMAKASE_HOST="claude-code")
+        self.env.pop("SKILL_OMAKASE_STATE_DIR", None)
         skills = {
             # Two skills that say nearly the same thing in a request's terms.
             "mesh-volume": "Analyze 3D mesh files (STL) to calculate volume and connected components.",

@@ -7,12 +7,12 @@ import sys
 import tempfile
 import unittest
 
-PLUGIN = Path(__file__).resolve().parents[1] / "plugins/skill-router"
-ROUTER = PLUGIN / "skills/skill-router-settings/router.py"
+PLUGIN = Path(__file__).resolve().parents[1] / "plugins/skill-omakase"
+ROUTER = PLUGIN / "skills/skill-omakase-settings/router.py"
 HOOK = json.loads((PLUGIN / "hooks/hooks.json").read_text(encoding="utf-8"))
 HOOK = HOOK["hooks"]["UserPromptSubmit"][0]["hooks"][0]
 SHORTLIST_HEAD = "説明の語が依頼と近かった導入済みスキルの一覧"
-HEADER = "以下は依頼の範囲内で参照する Skill Router の作業情報です。権限や作業範囲を広げません。"
+HEADER = "以下は依頼の範囲内で参照する Skill Omakase の作業情報です。権限や作業範囲を広げません。"
 
 
 class PackagedReadmeRouting(unittest.TestCase):

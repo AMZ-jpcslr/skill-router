@@ -1,12 +1,12 @@
 {
-  "name": "skill-router-preview",
+  "name": "skill-omakase-preview",
   "owner": {
     "name": "AMZ-jpcslr"
   },
   "plugins": [
     {
-      "name": "skill-router",
-      "source": "./plugins/skill-router",
+      "name": "skill-omakase",
+      "source": "./plugins/skill-omakase",
       "description": "依頼に合う導入済みスキルと作業ガイドを自動で渡すプラグイン（プレビュー）",
       "category": "productivity"
     }

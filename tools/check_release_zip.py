@@ -24,9 +24,9 @@ FENCE = re.compile(r"(?ms)^[ \t]*(`{3,}|~{3,}).*?^[ \t]*\1[^\n]*")
 REQUIRED = (
     "README.md",
     "LICENSE",
-    "plugins/skill-router/.claude-plugin/plugin.json",
-    "plugins/skill-router/.codex-plugin/plugin.json",
-    "plugins/skill-router/hooks/hooks.json",
+    "plugins/skill-omakase/.claude-plugin/plugin.json",
+    "plugins/skill-omakase/.codex-plugin/plugin.json",
+    "plugins/skill-omakase/hooks/hooks.json",
 )
 NOT_SHIPPED = re.compile(r"(?:^|/)(?:tests|tools|\.github|__pycache__)/|\.pyc$|(?:^|/)skill-(?:index|auto|router-settings)[^/]*\.json$|(?:^|/)settings\.json$")
 HOOK_FILE = re.compile(r"[\w./${}-]*?([\w-]+\.py)\b")
@@ -86,13 +86,13 @@ def problems(zip_path):
                     path = "/".join(parts) if parts else None
                     if path is None or not (path in files or path in dirs or path in names):
                         out.append(f"{n}: link to a file not in the ZIP: {target}")
-        hooks = "plugins/skill-router/hooks/hooks.json"
+        hooks = "plugins/skill-omakase/hooks/hooks.json"
         if hooks in files:
             for script in set(HOOK_FILE.findall(z.read(hooks).decode("utf-8"))):
                 if not any(f.endswith("/" + script) for f in files):
                     out.append(f"{hooks}: names {script}, not in the ZIP")
         versions = {}
-        for m in ("plugins/skill-router/.claude-plugin/plugin.json", "plugins/skill-router/.codex-plugin/plugin.json"):
+        for m in ("plugins/skill-omakase/.claude-plugin/plugin.json", "plugins/skill-omakase/.codex-plugin/plugin.json"):
             if m in files:
                 try:
                     versions[m] = json.loads(z.read(m).decode("utf-8")).get("version")
@@ -108,7 +108,7 @@ def main(argv):
         found = problems(argv[0])
     else:
         with tempfile.TemporaryDirectory() as d:
-            found = problems(build(str(Path(d) / "skill-router.zip")))
+            found = problems(build(str(Path(d) / "skill-omakase.zip")))
     for p in found:
         print(p)
     print("release ZIP: " + ("OK" if not found else f"{len(found)} problem(s)"))

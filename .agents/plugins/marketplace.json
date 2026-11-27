@@ -1,14 +1,14 @@
 {
-  "name": "skill-router-preview",
+  "name": "skill-omakase-preview",
   "interface": {
-    "displayName": "Skill Router Preview"
+    "displayName": "Skill Omakase Preview"
   },
   "plugins": [
     {
-      "name": "skill-router",
+      "name": "skill-omakase",
       "source": {
         "source": "local",
-        "path": "./plugins/skill-router"
+        "path": "./plugins/skill-omakase"
       },
       "policy": {
         "installation": "AVAILABLE",

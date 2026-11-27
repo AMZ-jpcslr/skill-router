@@ -16,11 +16,12 @@ import json
 import os
 from pathlib import Path
 import re
+import runpy
 import stat
 import time
 import unicodedata
 
-STATE_DIR = Path(os.environ.get("SKILL_ROUTER_STATE_DIR") or Path.home() / ".skill-router-beta")
+STATE_DIR = runpy.run_path(str(Path(__file__).resolve().parent / "state_dir.py"))["STATE_DIR"]
 LOG = STATE_DIR / "no-fit.jsonl"
 MARK = STATE_DIR / "no-fit-state.json"
 KEEP_DAYS = 180
@@ -31,7 +32,7 @@ MAX_TERMS = 12
 NOTICE_DAYS = 3
 NOTICE_WINDOW = 60
 NOTICE_EVERY = 7 * 86400
-OWN = {"skill-suggest", "skill-router-settings"}
+OWN = {"skill-suggest", "skill-omakase-settings", "skill-router-settings"}
 TERM = re.compile(r"[a-z][a-z0-9+#.-]{2,}|[ァ-ヿー]{3,}|[㐀-鿿]{2,6}")
 SKILL_PATH = re.compile(r"[/\\]([a-z0-9][a-z0-9-]{0,79})[/\\]+SKILL\.md\b", re.I)
 INVOKED = re.compile(r"(?:^|(?<=\s))[/$](?:[a-z0-9-]+:)?([a-z0-9][a-z0-9-]{0,79})(?![a-z0-9_:/\\-]|\.\S)", re.I)
@@ -240,9 +241,9 @@ def _notice(entry, today):
         if t["days"] >= NOTICE_DAYS and mine & set(t["terms"]):
             mark["noticed"] = time.time()
             _write_json(MARK, mark)
-            return ("Skill Router: 「" + "・".join(t["terms"][:3]) + "」の作業で、合う導入済みスキルがない日が"
+            return ("Skill Omakase: 「" + "・".join(t["terms"][:3]) + "」の作業で、合う導入済みスキルがない日が"
                     f"{t['days']}日ありました。「おすすめのスキルを教えて」と頼むと、合う公開スキルを探します。"
-                    "（記録はこのPCの中だけ。止めるには「Skill Routerの記録をオフにして」）")
+                    "（記録はこのPCの中だけ。止めるには「Skill Omakaseの記録をオフにして」）")
     return None
 
 

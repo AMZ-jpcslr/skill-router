@@ -13,7 +13,7 @@ import unicodedata
 import zlib
 
 HOME=Path.home()
-STATE=Path(os.environ.get("SKILL_ROUTER_STATE_DIR") or HOME/".skill-router-beta")
+STATE=runpy.run_path(str(Path(__file__).resolve().parent / "state_dir.py"))["STATE_DIR"]
 INDEX=STATE/"skill-index.json"
 ROOTS=STATE/"skill-roots.json"
 KEYWORDS=STATE/"skill-keywords.json"

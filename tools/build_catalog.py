@@ -19,7 +19,7 @@ from pathlib import Path
 
 RAW = "https://raw.githubusercontent.com/{repo}/{ref}/{path}"
 WEB = "https://github.com/{repo}/tree/{ref}/{path}"
-OUT = Path(__file__).resolve().parents[1] / "plugins/skill-router/skills/skill-suggest/catalog.json"
+OUT = Path(__file__).resolve().parents[1] / "plugins/skill-omakase/skills/skill-suggest/catalog.json"
 NAME = re.compile(r"[a-z0-9][a-z0-9-]{0,79}\Z")
 
 # Each source is read by a generic adapter for its manifest format.
@@ -129,7 +129,7 @@ def read_source(src):
 
 
 def add_keywords(entries, previous):
-    K = runpy.run_path(str(OUT.parents[1] / "skill-router-settings" / "keywords.py"))
+    K = runpy.run_path(str(OUT.parents[1] / "skill-omakase-settings" / "keywords.py"))
     cached = {(e["url"], e["name"], e["description"]): e["keywords"] for e in previous if e.get("keywords")}
     rows = []
     for e in entries:

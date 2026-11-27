@@ -9,8 +9,8 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-PLUGIN = ROOT / "plugins/skill-router"
-CORE = PLUGIN / "skills/skill-router-settings"
+PLUGIN = ROOT / "plugins/skill-omakase"
+CORE = PLUGIN / "skills/skill-omakase-settings"
 WRITING_RULE = "依頼や資料にない事実・数字・経験・理由を作らない"
 
 SKILLS = {
@@ -26,13 +26,13 @@ class KindsAndTodos(unittest.TestCase):
         base = Path(self.tmp.name)
         self.home, self.project = base / "home", base / "project"
         (self.project / ".git").mkdir(parents=True)
-        self.state = self.home / ".skill-router-beta"
+        self.state = self.home / ".skill-omakase"
         self.state.mkdir(parents=True)
         (self.state / "settings.json").write_text(json.dumps(
             {"all_projects": True, "folderless": False, "projects": []}), encoding="utf-8")
-        self.env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "SKILL_ROUTER_HOST", "SKILL_ROUTER_STATE_DIR")}
+        self.env = {k: v for k, v in os.environ.items() if k not in ("PLUGIN_ROOT", "SKILL_OMAKASE_HOST", "SKILL_OMAKASE_STATE_DIR")}
         self.env.update(HOME=str(self.home), USERPROFILE=str(self.home), CLAUDE_PLUGIN_ROOT=str(PLUGIN),
-                        SKILL_ROUTER_NO_AUTO_INDEX="1")
+                        SKILL_OMAKASE_NO_AUTO_INDEX="1")
 
     def tearDown(self):
         self.tmp.cleanup()

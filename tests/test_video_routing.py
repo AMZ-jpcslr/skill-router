@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE = ROOT / "plugins/skill-router/skills/skill-router-settings"
+CORE = ROOT / "plugins/skill-omakase/skills/skill-omakase-settings"
 INDEX = runpy.run_path(str(CORE / "local_index.py"))
 ENGINE = INDEX["OPEN"]
 ROWS = [
