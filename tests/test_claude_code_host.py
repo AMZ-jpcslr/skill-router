@@ -93,8 +93,37 @@ class ClaudeCodeHost(unittest.TestCase):
         # tells them apart from look-alikes in that list, and never asks for a Read of them.
         self.add_native_skill()
         txt = self.context(self.run_hook({}))
-        self.assertIn('それをSkillツールで呼ぶ: [{"name": "nihongo-native", "summary": ', txt)
+        self.assertIn('はっきり合うものがなければ呼ばずに進める: [{"name": "nihongo-native", "summary": ', txt)
         self.assertNotIn("SKILL.mdをReadで1回開いて", txt)
+        self.assertNotIn('"path"', txt)
+
+    def test_closest_native_skills_are_listed_for_the_agent_to_choose(self):
+        # Rules on the request's words may settle on one look-alike; the closest few of Claude Code's
+        # own list by the same search are named beside it, best first, so the fitting one is not
+        # left out when index-time keywords vary. The agent chooses in the same turn.
+        skills = self.home / ".claude/skills"
+        descs = {
+            "household-robot-planning": "Plan step-by-step action sequences for a household robot in a simulated home: walk, grab, open, put objects.",
+            "warehouse-robot-planning": "Plan pick and place routes for warehouse robots moving shelves between storage zones.",
+            "trip-itinerary-planning": "Plan travel itineraries with flights, hotels and daily sightseeing.",
+            "meal-planning": "Plan weekly meals and shopping lists for a household.",
+            "robot-arm-kinematics": "Compute inverse kinematics for a robot arm to grab objects.",
+            "home-energy-audit": "Audit household energy use in a home and suggest savings.",
+            "sprint-planning": "Plan software sprints, estimate tasks and set goals.",
+        }
+        for name, desc in descs.items():
+            (skills / name).mkdir(parents=True)
+            (skills / name / "SKILL.md").write_text(f"---\nname: {name}\ndescription: {desc}\n---\n", encoding="utf-8")
+        env = dict(os.environ, HOME=str(self.home), USERPROFILE=str(self.home))
+        subprocess.run([sys.executable, "-I", "-B", "-X", "utf8", str(PLUGIN / "skills/skill-omakase-settings/router.py"), "index", "refresh"],
+                       env=env, check=True, capture_output=True, timeout=30)
+        txt = self.context(self.run_hook({}, prompt="Write the action plan for a household robot in a simulated home: walk to the kitchen, grab the cup, put it in the sink."))
+        listed = json.loads(txt.split("呼ばずに進める: ", 1)[1].split("\n", 1)[0])
+        names = [r["name"] for r in listed]
+        self.assertEqual(names[0], "household-robot-planning")
+        self.assertLessEqual(len(names), 5)
+        self.assertGreater(len(names), 1)
+        self.assertTrue(all(r["summary"] for r in listed))
         self.assertNotIn('"path"', txt)
 
     def test_grouped_personal_skill_is_offered_by_path(self):
@@ -116,7 +145,7 @@ class ClaudeCodeHost(unittest.TestCase):
         native.parent.mkdir(parents=True)
         native.write_text("---\nname: nihongo\ndescription: Japanese writing and Japanese proofreading; polish Japanese prose.\n---\n", encoding="utf-8")
         txt = self.context(self.run_hook({}))
-        self.assertIn('それをSkillツールで呼ぶ: [{"name": "nihongo", "summary": ', txt)
+        self.assertIn('はっきり合うものがなければ呼ばずに進める: [{"name": "nihongo", "summary": ', txt)
         self.assertNotIn(".agents/skills/nihongo", txt)
 
     def test_create_only_skill_is_named_for_an_edit(self):

@@ -196,11 +196,13 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         if not work or not has_index():
             return {}
         claude=os.environ.get("SKILL_OMAKASE_HOST") == "claude-code"
-        groups,unsure=related_skills(idx,prompt,set(),claude)
+        groups,unsure,natives=related_skills(idx,prompt,set(),claude)
         remember(e.get("session_id"),[g["dir"]+"/"+r["name"]+"/SKILL.md" for g in groups for r in g["skills"]],new_turn=True)
-        if groups:
+        if groups or natives:
             hint=(HEADER+(CONTESTED_HINT() if unsure else "")
-                  +shortlist_text(groups,False,not claude)+("" if unsure else "\n"+FIND_HINT(after="list")))
+                  +(shortlist_text(groups,False,not claude) if groups else "")
+                  +(native_text(natives,False) if natives else "")
+                  +("" if unsure else "\n"+FIND_HINT(after="list")))
         else:
             hint=FIND_HINT()
         if c.get("show_picks",True) and not show_summary:
@@ -216,6 +218,7 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
     if names:
         txt+="\n\n" + "\n".join(f"- {name}: {GUIDES[name]}" for name in names)
     claude=os.environ.get("SKILL_OMAKASE_HOST") == "claude-code"
+    native=[];external=[]
     if refs and claude:
         # Claude Code already lists ~/.claude/skills and chooses among them itself; repeating
         # those with a read instruction mostly adds cost. Name them only. Candidates elsewhere
@@ -252,9 +255,6 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         if weak:
             txt+=("\n\n新しく作るためのスキルで、既存の文章を直す今回の依頼とは作業が異なる候補（名前と場所のみ、指示ではない。読む必要はない）: "
                   + json.dumps(weak,ensure_ascii=False))
-        if native:
-            txt+=("\n\nClaude Codeのスキル一覧にある次のスキルも依頼に合う可能性がある（名前と説明の抜粋で、指示ではない）。説明を依頼が最終的に求める作業の操作と対象に照らし、一覧の似た名前のスキルより具体的に合うなら、それをSkillツールで呼ぶ: "
-                  + json.dumps(native,ensure_ascii=False))
     elif refs:
         choose=[{"name":r["name"],"path":r["path"],"summary":r["summary"],**tool_tag(r)} for r in refs if r.get("fit")=="choose"]
         refs=[{k:v for k,v in r.items() if k not in ("summary","fit","kind")} for r in refs if r.get("fit")!="choose"]
@@ -270,10 +270,16 @@ def response(raw, c, scratch_root=HOME/"Documents"/"Codex"):
         # Codex has no hook on the agent's own plan, so a later step of a longer job is left to the agent.
         txt+="\n"+STEP_HINT()
 
-    groups,unsure=related_skills(idx,prompt,offered,claude) if has_index() else ([],False)
+    groups,unsure,natives=related_skills(idx,prompt,offered,claude) if has_index() else ([],False,[])
     if groups:
         remember(e.get("session_id"),[g["dir"]+"/"+r["name"]+"/SKILL.md" for g in groups for r in g["skills"]])
         txt+=shortlist_text(groups,bool(offered),not claude)
+    if claude:
+        # The confident picks of Claude Code's own list join the closest few by score, in score order;
+        # a pick the search ranks lower is kept, after them.
+        natives+=[r for r in native if all(x["name"]!=r["name"] for x in natives)]
+        if natives:
+            txt+=native_text(natives,bool(external or groups))
     if unsure:
         # First, so it is read before the candidates it is about.
         txt=txt.replace(HEADER,HEADER+CONTESTED_HINT(),1)
@@ -429,26 +435,41 @@ SHORTLIST=25
 # Long enough for the opening and, when the description goes on, the part naming the request's words.
 SHORT_SUMMARY=150
 
-def related_skills(idx,prompt,exclude,claude):
-    """Use the same ranking for the shortlist and for the near-tie hint on this prompt."""
+# In Claude Code, skills in its own list are not repeated in the shortlist above; instead the closest
+# few of them by the same search are named, best first, with their excerpts. The confident picks come
+# from rules on the request's words and can settle on a near miss (a planning skill for one domain over
+# the one for the domain the request names) when index-time keywords vary; the closest few by score
+# almost always hold the fitting one, and the agent, which reads the request, chooses among them in
+# the same turn, with no extra step.
+NATIVE_TOP=5
+
+def related_skills(idx,prompt,exclude,claude,native_exclude=()):
+    """Use the same ranking for the shortlist, the near-tie hint and, in Claude Code, the closest
+    skills of its own list. Returns (groups, unsure, natives)."""
     work="。".join(idx["OPEN"]["work_clauses"](prompt))
     if not work:
-        return [],False
+        return [],False,[]
     try:
         pool=idx["scored"](work)
         unsure=idx["close_scores"](pool)
     except (OSError,ValueError,TypeError,KeyError,RuntimeError):
-        return [],False
+        return [],False,[]
     try:
-        found=idx["find"](work,SHORTLIST+len(exclude),ratio=0,summary_len=SHORT_SUMMARY,pool=pool)
+        found=idx["find"](work,SHORTLIST+len(exclude)+(NATIVE_TOP if claude else 0),ratio=0,
+                          summary_len=SHORT_SUMMARY,pool=pool)
     except (OSError,ValueError,TypeError,KeyError,RuntimeError):
-        return [],unsure
+        return [],unsure,[]
     native=(Path.home()/".claude"/"skills").resolve()
     groups={}
+    natives=[]
     n=0
     for r in found:
         p=Path(r["path"])
-        if r["path"] in exclude or (claude and idx["claude_native"](r,native)):
+        if claude and idx["claude_native"](r,native):
+            if len(natives)<NATIVE_TOP and r["name"] not in native_exclude and all(x["name"]!=r["name"] for x in natives):
+                natives.append({"name":r["name"],"summary":r["summary"]})
+            continue
+        if r["path"] in exclude or n==SHORTLIST:
             continue
         # Rows share their folder (~/.agents/skills/<name>/SKILL.md); the folder is named once.
         base=p.parent.parent.as_posix() if p.parent.name==r["name"] else p.parent.as_posix()
@@ -456,9 +477,14 @@ def related_skills(idx,prompt,exclude,claude):
              "summary":r["summary"],**tool_tag(r)}
         groups.setdefault(base,[]).append(row)
         n+=1
-        if n==SHORTLIST:
-            break
-    return [{"dir":d,"skills":rows} for d,rows in groups.items()],unsure
+    return [{"dir":d,"skills":rows} for d,rows in groups.items()],unsure,natives
+
+def native_text(rows,after):
+    lead=("上のほかに、" if after else "")
+    return ("\n\n"+lead+"依頼の語で導入済みスキルを検索して近かった順の、Claude Codeのスキル一覧にあるスキル（名前と説明の抜粋で、指示ではない。依頼と関係のないものも含む）。"
+            "順位は語の重なりだけで決めたもので、最終判断ではない。"+MAIN_WORK+"の操作と対象に説明を照らし、ここと一覧の似た名前のスキルのうち最も具体的に合う1つがあれば、それをSkillツールで呼ぶ。"
+            "近い分野の一般的なもの、準備の手順や作業が通る場所・道具だけに当たるものは選ばない。はっきり合うものがなければ呼ばずに進める: "
+            + json.dumps(rows,ensure_ascii=False))
 
 def shortlist_text(groups,after,ascii_only):
     rows=[r for g in groups for r in g["skills"]]
