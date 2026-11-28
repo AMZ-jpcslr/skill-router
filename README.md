@@ -12,17 +12,17 @@ Skill Omakaseは、依頼に合うスキルの参照先と作業ガイドを自�
 
 ### 実測：150件のスキルから正しい1件を選べるか
 
-公開されているスキル選択の比較試験（[agentic-skill-router](https://github.com/legendtkl/agentic-skill-router) の `experiments/dci-compare`、SkillsBench由来）で測りました。150件のうち正解は19件で、残りは紛らわしい類似スキル80件と無関係なスキル51件です。スキル名は `skill-NNN` に伏せてあり、名前では当てられません。24問を各3回、Claude Code（opus）で実行しています。
+公開されているスキル選択の比較試験（[agentic-skill-router](https://github.com/legendtkl/agentic-skill-router) の `experiments/dci-compare`、SkillsBench由来）で測りました。150件のうち正解は19件で、残りは紛らわしい類似スキル80件と無関係なスキル51件です。スキル名は `skill-NNN` に伏せてあり、名前では当てられません。24問を各3回、Claude Code（opus）で実行しています。時間は3回それぞれの中央値の幅です。
 
 | 条件 | 正解率 | 1問の時間（中央値） |
 | --- | --- | --- |
-| Skill Omakase（`~/.claude/skills` に150件） | **TBD_ACC%** | TBD_TIME秒 |
-| Skill Omakase（`~/.agents/skills` に150件） | TBD_ACC_AGENTS% | TBD_TIME_AGENTS秒 |
+| Skill Omakase（`~/.claude/skills` に150件） | **95.8%** | 6.6〜7.1秒 |
+| Skill Omakase（`~/.agents/skills` に150件） | 94.4% | 5.3〜5.7秒 |
 | Claude Code標準（`~/.claude/skills` に150件） | 75.0% | 5.3秒 |
 | Claude Code標準（`~/.agents/skills` に150件） | 使えない（読み込みの対象外） | ― |
 | agentic-skill-router 0.1.7 | 98.6% | 14.6秒 |
 
-標準のスキル一覧を使わないまま標準より多く正解し、検索を何往復もするルーターの半分以下の時間で答えます。`~/.agents/skills` に置いたスキルは標準では使われませんが、Skill Omakaseなら同じように選べます。測定はSkill Omakase β.10（TBD_COMMIT）、2026年11月時点です。
+標準のスキル一覧を使わないまま標準より多く正解し、検索を何往復もするルーターの半分以下の時間で答えます。`~/.agents/skills` に置いたスキルは標準では使われませんが、Skill Omakaseなら同じように選べます。測定はSkill Omakase β.10（6b4a046）で2026年11月28日、標準とagentic-skill-routerは11月27日です。
 
 **β.9：Claude Code・Codex Desktop（Windows）**
 
